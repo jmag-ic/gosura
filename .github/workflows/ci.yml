@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        go-version: [1.24, 1.25, 1.26]
+        go-version: [1.24]
 
     steps:
     - uses: actions/checkout@v4
@@ -61,7 +61,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.26'
+        go-version: '1.24'
 
     - name: Install dependencies
       run: go mod download
@@ -89,7 +89,7 @@ jobs:
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
-        go-version: '1.26'
+        go-version: '1.24'
 
     - name: Build
       run: go build -v ./...
