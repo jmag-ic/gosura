@@ -4,15 +4,16 @@
 [![Go Version](https://img.shields.io/github/go-mod/go-version/jmag-ic/gosura)](https://go.dev/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-**Gosura** is a **PostgreSQL-first Go library** for converting Hasura-style GraphQL filters into SQL clauses.
+**Gosura** is a **PostgreSQL-first Go library** for converting Hasura-style GraphQL filters into SQL clauses with extensible hook-based architecture.
 
 ---
 
 ## 🚀 Features
 
 - **Hasura Filter Parsing** – Convert GraphQL-style filters into SQL `WHERE` clauses  
-- **PostgreSQL Support** – Compatibility with PostgreSQL operators  
-- **Extensible Architecture** – Plugin-based hook system for custom filter processing  
+- **PostgreSQL Support** – Compatibility with PostgreSQL operators
+- **Extensible Architecture** – Plugin-based hook system for custom filter processing
+- **Comprehensive Testing** – Unit tests and integration tests
 
 ---
 
@@ -63,7 +64,7 @@ type FilterHook interface {
 inspector := &inspector.HasuraInspector{}
 
 // 2. Create a PostgreSQL-compatible hook
-sqlParseHook := hooks.NewSQLParseHook(hooks.NewPostgresParseHookConfig())
+sqlParseHook := sql.NewSQLParseHook(postgres.NewParseHookConfig())
 
 // 3. Process the filter JSON
 err := inspector.Inspect(context.Background(), filterJSON, sqlParseHook)
@@ -77,7 +78,7 @@ whereClause, params := sqlParseHook.GetWhereClause()
 - 🔄 Easily switch databases by swapping hooks  
 - 🔧 Extend functionality with custom operators  
 - 🧪 Unit-test each hook independently  
-- 🧼 Maintain a clean separation between filter inspection and filter processing(SQL generation)
+- 🧼 Maintain a clean separation between filter inspection and filter processing (SQL generation)
 
 ---
 
@@ -90,7 +91,8 @@ import (
     "context"
     "fmt"
 
-    "github.com/jmag-ic/gosura/pkg/hooks"
+    "github.com/jmag-ic/gosura/pkg/hooks/postgres"
+    "github.com/jmag-ic/gosura/pkg/hooks/sql"
     "github.com/jmag-ic/gosura/pkg/inspector"
 )
 
@@ -105,7 +107,7 @@ func main() {
     }`
 
     inspector := &inspector.HasuraInspector{}
-    sqlParseHook := hooks.NewSQLParseHook(hooks.NewPostgresParseHookConfig())
+    sqlParseHook := sql.NewSQLParseHook(postgres.NewParseHookConfig())
 
     if err := inspector.Inspect(context.Background(), filterJSON, sqlParseHook); err != nil {
         panic(err)
@@ -116,6 +118,16 @@ func main() {
     fmt.Printf("SQL: SELECT * FROM users WHERE %s\n", whereClause)
     fmt.Printf("Parameters: %v\n", params)
 }
+```
+
+### Run Examples
+
+```bash
+# Basic usage example
+go run examples/basic-usage/main.go
+
+# PGX integration example (requires PostgreSQL)
+go run examples/pgx-integration/main.go
 ```
 
 ---
@@ -174,11 +186,12 @@ filter := `{
           { "name": { "_like": "%John%" } },
           { "name": { "_like": "%Jane%" } }
         ]
-      }
+      },
+      { "metadata": { "_has_key": "role" } }
     ]
   }
 }`
-// → "age >= $1 AND (name LIKE $2 OR name LIKE $3)"
+// → "age >= $1 AND (name LIKE $2 OR name LIKE $3) AND metadata ? $4"
 ```
 
 ---
@@ -194,30 +207,46 @@ go test ./...
 # With coverage
 go test -cover ./...
 
-# Integration test using PGX
-# Require a running PostgreSQL default instance
-go run examples/pgx-testing/main.go
+# Run integration tests (requires PostgreSQL)
+go test -tags=integration ./pkg/hooks/postgres/
+
+# Run examples
+go run examples/basic-usage/main.go
+go run examples/pgx-integration/main.go
 ```
+
+### Integration Testing
+
+The project includes comprehensive integration tests that:
+- Create real PostgreSQL tables
+- Insert test data
+- Execute actual queries using PGX
+- Validate results against expected outcomes
+
+To run integration tests, ensure you have PostgreSQL running with default credentials:
+- Host: `localhost:5432`
+- User: `postgres`
+- Password: `postgres`
+- Database: `postgres`
 
 ---
 
 ## 📁 Project Structure
 
 ```
-gosura/
-├── examples/
-│   ├── basic-usage/           # Simple usage examples
-│   └── pgx-testing/           # PostgreSQL tests using PGX
-└── pkg/
-    ├── hooks/                 # Processing hooks
-    └── inspector/             # Hasura filter inspector
-```
+
+## 🔗 Dependencies
+
+- **Go 1.24+** - Modern Go features and performance
+- **PGX v5** - High-performance PostgreSQL driver
+- **GJSON** - Fast JSON parsing
+- **Testify** - Testing utilities
 
 ---
 
 ## 📄 License
 
-Licensed under the [MIT License](LICENSE).
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 

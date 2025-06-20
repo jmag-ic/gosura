@@ -1,54 +1,20 @@
-package main
+//go:build integration
+// +build integration
+
+package postgres
 
 import (
 	"context"
 	"fmt"
-	"log"
-	"strings"
+	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jmag-ic/gosura/pkg/hooks"
+	"github.com/jmag-ic/gosura/pkg/hooks/sql"
 	"github.com/jmag-ic/gosura/pkg/inspector"
+	"github.com/stretchr/testify/require"
 )
 
-const (
-	POSTGRES_USER     = "postgres"
-	POSTGRES_PASSWORD = "postgres"
-	POSTGRES_HOST     = "localhost"
-	POSTGRES_PORT     = "5432"
-	POSTGRES_DB       = "postgres"
-	TEST_TABLE        = "gosura_pgx_test"
-)
-
-func main() {
-	// Database connection parameters
-	dbURL := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable", POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB)
-
-	ctx := context.Background()
-
-	// Connect to database
-	conn, err := pgx.Connect(ctx, dbURL)
-	if err != nil {
-		log.Fatalf("Unable to connect to database: %v", err)
-	}
-	defer conn.Close(ctx)
-
-	// Create test table
-	if err := createTestTable(ctx, conn); err != nil {
-		log.Fatalf("Failed to create test table: %v", err)
-	}
-
-	// Insert test data
-	if err := insertTestData(ctx, conn); err != nil {
-		log.Fatalf("Failed to insert test data: %v", err)
-	}
-
-	// Test all PostgreSQL operators
-	successCount, failureCount, failedTests := run(conn)
-
-	// Print summary
-	printSummary(successCount, failureCount, failedTests)
-}
+const TABLE_NAME = "gosura_pgintegration_test"
 
 func createTestTable(ctx context.Context, db *pgx.Conn) error {
 	createTableSQL := fmt.Sprintf(`
@@ -63,13 +29,21 @@ func createTestTable(ctx context.Context, db *pgx.Conn) error {
 		tags text[] NULL,
 		metadata jsonb NULL,
 		ip cidr NULL
-	);`, TEST_TABLE, TEST_TABLE)
+	);`, TABLE_NAME, TABLE_NAME)
 
 	_, err := db.Exec(ctx, createTableSQL)
 	if err != nil {
 		return fmt.Errorf("failed to create table: %w", err)
 	}
-	fmt.Printf("✅ Test table '%s' created successfully\n", TEST_TABLE)
+	return nil
+}
+
+func dropTestTable(ctx context.Context, db *pgx.Conn) error {
+	dropTableSQL := fmt.Sprintf("DROP TABLE IF EXISTS public.%s", TABLE_NAME)
+	_, err := db.Exec(ctx, dropTableSQL)
+	if err != nil {
+		return fmt.Errorf("failed to drop table: %w", err)
+	}
 	return nil
 }
 
@@ -81,32 +55,48 @@ func insertTestData(ctx context.Context, db *pgx.Conn) error {
 	('bobjohnson', 'Bob Johnson', 35, 78.9, false, ARRAY['manager'], '{"role": "manager", "department": "sales", "reports": ["team1", "team2"]}', '172.16.0.0/24'),
 	('alicebrown', 'Alice Brown', 28, 88.1, true, ARRAY['analyst', 'data'], '{"role": "analyst", "department": "data", "tools": ["python", "sql"]}', '203.0.113.0/24'),
 	('charliewilson', 'Charlie Wilson', 42, 95.7, true, ARRAY['architect'], '{"role": "architect", "department": "engineering", "certifications": ["aws", "kubernetes"]}', '198.51.100.0/24');`,
-		TEST_TABLE)
+		TABLE_NAME)
 
 	_, err := db.Exec(ctx, insertSQL)
 	if err != nil {
-		return fmt.Errorf("failed to insert test data: %w", err)
+		return fmt.Errorf("failed to insert data: %w", err)
 	}
-	fmt.Println("✅ Test data inserted successfully")
 	return nil
 }
 
-func run(conn *pgx.Conn) (int, int, []string) {
-	fmt.Println("\n🧪 Testing PostgreSQL Operators with NewPostgresParseHookConfig")
-	fmt.Println("================================================================")
+func executeQuery(ctx context.Context, db *pgx.Conn, query string, params []any) ([]string, error) {
+	rows, err := db.Query(ctx, query, params...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+	defer rows.Close()
 
-	// Create inspector and hook
-	inspector := &inspector.HasuraInspector{}
+	usernames := []string{}
+	for rows.Next() {
+		var username string
+		err := rows.Scan(&username)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan row: %w", err)
+		}
+		usernames = append(usernames, username)
+	}
+	return usernames, nil
+}
 
-	// Test counters
-	var successCount, failureCount int
-	var failedTests []string
+func TestSQLParseHook_PostgresIntegration(t *testing.T) {
+	ctx := context.Background()
+	dbURL := "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
 
-	// Postgres hook config should be instantiated once and reused
-	postgresHookConfig := hooks.NewPostgresParseHookConfig()
+	conn, err := pgx.Connect(ctx, dbURL)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
 
-	// All test cases for PostgreSQL operators
-	testCases := []struct {
+	require.NoError(t, createTestTable(ctx, conn))
+	defer dropTestTable(ctx, conn)
+	require.NoError(t, insertTestData(ctx, conn))
+
+	// All cases for PostgreSQL operators
+	cases := []struct {
 		category          string
 		name              string
 		filter            string
@@ -387,155 +377,39 @@ func run(conn *pgx.Conn) (int, int, []string) {
 		},
 	}
 
-	var currentCategory string
-	for _, tc := range testCases {
-		// Print category header when it changes
-		if currentCategory != tc.category {
-			currentCategory = tc.category
-			fmt.Printf("\n📂 Category: %s\n", currentCategory)
-			fmt.Println(strings.Repeat("-", 50))
-		}
+	hasuraInspector := &inspector.HasuraInspector{}
+	postgresHookConfig := NewParseHookConfig()
 
-		fmt.Printf("\n📋 Test: %s\n", tc.name)
-		fmt.Printf("   Description: %s\n", tc.description)
-		fmt.Printf("   Filter: %s\n", tc.filter)
-		fmt.Printf("   Expected usernames: %v\n", tc.expectedUsernames)
+	for _, c := range cases {
 
-		// Create sqlParseHook with PostgreSQL config
-		sqlParseHook := hooks.NewSQLParseHook(postgresHookConfig)
+		sqlParseHook := sql.NewSQLParseHook(postgresHookConfig)
 
-		// Process the filter
-		err := inspector.Inspect(context.Background(), tc.filter, sqlParseHook)
-		if err != nil {
-			fmt.Printf("   ❌ Error processing filter: %v\n", err)
-			failureCount++
-			failedTests = append(failedTests, fmt.Sprintf("%s: %s", tc.category, tc.name))
-			continue
-		}
+		t.Run(c.name, func(t *testing.T) {
+			err := hasuraInspector.Inspect(ctx, c.filter, sqlParseHook)
+			require.NoError(t, err)
 
-		// Get the generated SQL
-		whereClause, params := sqlParseHook.GetWhereClause()
-		sqlQuery := fmt.Sprintf("SELECT id, username, name, age, metadata FROM public.%s WHERE %s", TEST_TABLE, whereClause)
+			whereClause, params := sqlParseHook.GetWhereClause()
+			sqlQuery := fmt.Sprintf("SELECT username FROM public.%s WHERE %s", TABLE_NAME, whereClause)
 
-		fmt.Printf("   Generated SQL: %s\n", sqlQuery)
-		fmt.Printf("   Parameters: %v\n", params)
-
-		// Execute the query
-		rows, err := conn.Query(context.Background(), sqlQuery, params...)
-		if err != nil {
-			fmt.Printf("   ❌ Query execution error: %v\n", err)
-			failureCount++
-			failedTests = append(failedTests, fmt.Sprintf("%s: %s", tc.category, tc.name))
-			continue
-		}
-
-		// Process results
-		var results []map[string]any
-		for rows.Next() {
-			var id int
-			var username string
-			var name string
-			var age int
-			var metadata []byte
-
-			err := rows.Scan(&id, &username, &name, &age, &metadata)
-			if err != nil {
-				fmt.Printf("   ❌ Row scan error: %v\n", err)
-				continue
-			}
-
-			results = append(results, map[string]any{
-				"id":       id,
-				"username": username,
-				"name":     name,
-				"age":      age,
-				"metadata": string(metadata),
-			})
-		}
-		rows.Close()
-
-		// Extract actual usernames from results
-		var actualUsernames []string
-		for _, result := range results {
-			actualUsernames = append(actualUsernames, result["username"].(string))
-		}
-
-		fmt.Printf("   ✅ Found %d matching records with usernames: %v\n", len(results), actualUsernames)
-
-		// Validate results
-		if validateResults(actualUsernames, tc.expectedUsernames) {
-			fmt.Printf("   🎯 Validation: PASSED - Results match expectations\n")
-			successCount++
-		} else {
-			fmt.Printf("   ❌ Validation: FAILED - Expected usernames %v but got %v\n", tc.expectedUsernames, actualUsernames)
-			failureCount++
-			failedTests = append(failedTests, fmt.Sprintf("%s: %s", tc.category, tc.name))
-		}
-
-		// Show detailed results
-		for _, result := range results {
-			fmt.Printf("      - ID: %d, Username: %s, Name: %s, Age: %d, Metadata: %s\n",
-				result["id"], result["username"], result["name"], result["age"], result["metadata"])
-		}
+			actualUsernames, err := executeQuery(ctx, conn, sqlQuery, params)
+			require.NoError(t, err)
+			require.True(t, validateResults(actualUsernames, c.expectedUsernames))
+		})
 	}
-
-	return successCount, failureCount, failedTests
 }
 
-// printSummary displays a summary of all test results
-func printSummary(successCount, failureCount int, failedTests []string) {
-	totalTests := successCount + failureCount
-
-	fmt.Println("\n" + strings.Repeat("=", 80))
-	fmt.Println("🌍 TEST EXECUTION SUMMARY")
-	fmt.Println(strings.Repeat("=", 80))
-
-	fmt.Printf("Total Tests: %d\n", totalTests)
-	fmt.Printf("✅ Successful: %d\n", successCount)
-	fmt.Printf("❌ Failed: %d\n", failureCount)
-
-	successRate := float64(successCount) / float64(totalTests) * 100
-	fmt.Printf("📈 Success Rate: %.1f%%\n", successRate)
-
-	if failureCount > 0 {
-		fmt.Printf("\n❌ Failed Tests:\n")
-		for _, testName := range failedTests {
-			fmt.Printf("   - %s\n", testName)
-		}
-	} else {
-		fmt.Printf("\n🎉 All tests passed successfully!\n")
-	}
-
-	fmt.Println(strings.Repeat("=", 80))
-}
-
-// validateResults compares actual results with expected results
 func validateResults(actual, expected []string) bool {
 	if len(actual) != len(expected) {
 		return false
 	}
 
-	// Create maps for comparison
-	actualMap := make(map[string]bool)
-	expectedMap := make(map[string]bool)
-
-	for _, username := range actual {
-		actualMap[username] = true
+	set := make(map[string]struct{}, len(actual))
+	for _, v := range actual {
+		set[v] = struct{}{}
 	}
 
-	for _, username := range expected {
-		expectedMap[username] = true
-	}
-
-	// Compare maps
-	for username := range actualMap {
-		if !expectedMap[username] {
-			return false
-		}
-	}
-
-	for username := range expectedMap {
-		if !actualMap[username] {
+	for _, v := range expected {
+		if _, ok := set[v]; !ok {
 			return false
 		}
 	}

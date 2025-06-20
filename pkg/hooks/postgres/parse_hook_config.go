@@ -1,4 +1,6 @@
-package hooks
+package postgres
+
+import "github.com/jmag-ic/gosura/pkg/hooks/sql"
 
 var postgresOperatorMap = map[string]string{
 	// Basic comparisons
@@ -52,10 +54,10 @@ var postgresOperatorMap = map[string]string{
 	"_nt_contained": "<<=",
 }
 
-func NewPostgresParseHookConfig() *SQLParserHookConfig {
-	return &SQLParserHookConfig{
-		operatorMap:    postgresOperatorMap,
-		nameDelimiter:  DefaultNameDelimiter,
-		convertValueFn: DefaultConvertValueFn,
+func NewParseHookConfig() *sql.ParseHookConfig {
+	return &sql.ParseHookConfig{
+		OperatorMap:    postgresOperatorMap,
+		NameDelimiter:  sql.DefaultNameDelimiter,
+		ConvertValueFn: sql.DefaultConvertValueFn,
 	}
 }

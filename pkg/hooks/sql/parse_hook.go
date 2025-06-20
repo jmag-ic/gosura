@@ -1,4 +1,4 @@
-package hooks
+package sql
 
 import (
 	"context"
@@ -54,57 +54,57 @@ var DefaultConvertValueFn = func(value gjson.Result) any {
 	}
 }
 
-type SQLParserHookConfig struct {
-	operatorMap    map[string]string // Map of Hasura operators to SQL operators
-	nameDelimiter  string
-	convertValueFn func(value gjson.Result) any
+type ParseHookConfig struct {
+	OperatorMap    map[string]string // Map of Hasura operators to SQL operators
+	NameDelimiter  string
+	ConvertValueFn func(value gjson.Result) any
 }
 
 // SQLParseHook generates SQL WHERE clauses from Hasura filters
 type SQLParseHook struct {
-	conditions   []string        // Main conditions array
-	params       []any           // Parameters for placeholders
-	paramIndex   int             // Current parameter index
-	logicalStack []*logicalGroup // Stack of logical groups
-	currentGroup *logicalGroup   // Current logical group being processed
-	orderBy      []string        // Order by conditions
-	config       *SQLParserHookConfig
+	Conditions   []string        // Main conditions array
+	Params       []any           // Parameters for placeholders
+	ParamIndex   int             // Current parameter index
+	LogicalStack []*LogicalGroup // Stack of logical groups
+	CurrentGroup *LogicalGroup   // Current logical group being processed
+	OrderBy      []string        // Order by conditions
+	Config       *ParseHookConfig
 }
 
 // Private types and constants for the hook implementation
-type logicalOperator string
+type LogicalOperator string
 
 const (
-	opAND logicalOperator = "AND"
-	opOR  logicalOperator = "OR"
-	opNOT logicalOperator = "NOT"
+	opAND LogicalOperator = "AND"
+	opOR  LogicalOperator = "OR"
+	opNOT LogicalOperator = "NOT"
 )
 
-type logicalGroup struct {
-	operator   logicalOperator // AND | OR | NOT
+type LogicalGroup struct {
+	operator   LogicalOperator // AND | OR | NOT
 	operations []string        // The conditions in this group
 }
 
-func NewDefaultSQLParserHookConfig() *SQLParserHookConfig {
-	return &SQLParserHookConfig{
-		operatorMap:   DefaultOperatorMap,
-		nameDelimiter: DefaultNameDelimiter,
+func NewDefaultSQLParserHookConfig() *ParseHookConfig {
+	return &ParseHookConfig{
+		OperatorMap:   DefaultOperatorMap,
+		NameDelimiter: DefaultNameDelimiter,
 	}
 }
 
 // NewSQLParseHook creates a new SQLWhereHook instance
-func NewSQLParseHook(config *SQLParserHookConfig) *SQLParseHook {
+func NewSQLParseHook(config *ParseHookConfig) *SQLParseHook {
 	if config == nil {
 		config = NewDefaultSQLParserHookConfig()
 	}
 
 	h := &SQLParseHook{
-		conditions:   make([]string, 0),
-		params:       make([]any, 0),
-		paramIndex:   1,
-		logicalStack: make([]*logicalGroup, 0),
-		orderBy:      make([]string, 0),
-		config:       config,
+		Conditions:   make([]string, 0),
+		Params:       make([]any, 0),
+		ParamIndex:   1,
+		LogicalStack: make([]*LogicalGroup, 0),
+		OrderBy:      make([]string, 0),
+		Config:       config,
 	}
 
 	return h
@@ -135,9 +135,9 @@ func (h *SQLParseHook) OnComparison(ctx context.Context, field string, operator 
 		for _, v := range values {
 			// Convert value to appropriate type
 			paramValue := h.convertValue(v)
-			h.params = append(h.params, paramValue)
-			placeholders = append(placeholders, fmt.Sprintf("$%d", h.paramIndex))
-			h.paramIndex++
+			h.Params = append(h.Params, paramValue)
+			placeholders = append(placeholders, fmt.Sprintf("$%d", h.ParamIndex))
+			h.ParamIndex++
 		}
 		sqlOp := h.getOperator(operator)
 		h.addCondition(fmt.Sprintf("%s %s (%s)", alias, sqlOp, strings.Join(placeholders, ", ")))
@@ -148,9 +148,9 @@ func (h *SQLParseHook) OnComparison(ctx context.Context, field string, operator 
 	if sqlOp := h.getOperator(operator); sqlOp != "" {
 		// Convert value to appropriate type
 		paramValue := h.convertValue(value)
-		h.params = append(h.params, paramValue)
-		h.addCondition(fmt.Sprintf("%s %s $%d", alias, sqlOp, h.paramIndex))
-		h.paramIndex++
+		h.Params = append(h.Params, paramValue)
+		h.addCondition(fmt.Sprintf("%s %s $%d", alias, sqlOp, h.ParamIndex))
+		h.ParamIndex++
 		return nil
 	}
 
@@ -209,39 +209,39 @@ func (h *SQLParseHook) OnLogicalGroupEnd(ctx context.Context, operator string, n
 func (h *SQLParseHook) OnOrderBy(ctx context.Context, field string, direction string, path []string) {
 	// Get the column alias for the field
 	alias := h.getColumnAlias(field, path)
-	h.orderBy = append(h.orderBy, fmt.Sprintf("%s %s", alias, direction))
+	h.OrderBy = append(h.OrderBy, fmt.Sprintf("%s %s", alias, direction))
 }
 
 // GetWhereClause returns the final WHERE clause and parameters
 func (h *SQLParseHook) GetWhereClause() (string, []any) {
 	// Join all conditions with AND
-	whereClause := strings.Join(h.conditions, fmt.Sprintf(" %s ", opAND))
+	whereClause := strings.Join(h.Conditions, fmt.Sprintf(" %s ", opAND))
 
 	// Clean up any extra spaces
 	whereClause = strings.TrimSpace(whereClause)
 
-	return whereClause, h.params
+	return whereClause, h.Params
 }
 
 // GetOrderByClause returns the final ORDER BY clause
 func (h *SQLParseHook) GetOrderByClause() string {
-	return strings.Join(h.orderBy, ", ")
+	return strings.Join(h.OrderBy, ", ")
 }
 
 // addCondition adds a condition to the current group or main conditions
 func (h *SQLParseHook) addCondition(condition string) {
-	if h.currentGroup != nil {
-		h.currentGroup.operations = append(h.currentGroup.operations, condition)
+	if h.CurrentGroup != nil {
+		h.CurrentGroup.operations = append(h.CurrentGroup.operations, condition)
 	} else {
-		h.conditions = append(h.conditions, condition)
+		h.Conditions = append(h.Conditions, condition)
 	}
 }
 
 // getColumnAlias returns the qualified column name for the given field
 func (h *SQLParseHook) getColumnAlias(field string, path []string) string {
 	d := DefaultNameDelimiter
-	if h.config != nil {
-		d = h.config.nameDelimiter
+	if h.Config != nil {
+		d = h.Config.NameDelimiter
 	}
 
 	field = fmt.Sprintf("%s%s%s", d, strings.TrimSpace(field), d)
@@ -254,45 +254,45 @@ func (h *SQLParseHook) getColumnAlias(field string, path []string) string {
 }
 
 // popLogicalGroup pops the current logical group from the stack
-func (h *SQLParseHook) popLogicalGroup() *logicalGroup {
-	if len(h.logicalStack) == 0 || h.currentGroup == nil || len(h.currentGroup.operations) == 0 {
+func (h *SQLParseHook) popLogicalGroup() *LogicalGroup {
+	if len(h.LogicalStack) == 0 || h.CurrentGroup == nil || len(h.CurrentGroup.operations) == 0 {
 		return nil
 	}
 	// Pop the current group from the stack
-	pop := h.logicalStack[len(h.logicalStack)-1]
-	h.logicalStack = h.logicalStack[:len(h.logicalStack)-1]
+	pop := h.LogicalStack[len(h.LogicalStack)-1]
+	h.LogicalStack = h.LogicalStack[:len(h.LogicalStack)-1]
 
 	// Update current group
-	if len(h.logicalStack) > 0 {
-		h.currentGroup = h.logicalStack[len(h.logicalStack)-1]
+	if len(h.LogicalStack) > 0 {
+		h.CurrentGroup = h.LogicalStack[len(h.LogicalStack)-1]
 	} else {
-		h.currentGroup = nil
+		h.CurrentGroup = nil
 	}
 
 	return pop
 }
 
 // pushLogicalGroup pushes a new logical group onto the stack
-func (h *SQLParseHook) pushLogicalGroup(operator logicalOperator) {
-	group := &logicalGroup{
+func (h *SQLParseHook) pushLogicalGroup(operator LogicalOperator) {
+	group := &LogicalGroup{
 		operator:   operator,
 		operations: make([]string, 0),
 	}
-	h.logicalStack = append(h.logicalStack, group)
-	h.currentGroup = group
+	h.LogicalStack = append(h.LogicalStack, group)
+	h.CurrentGroup = group
 }
 
 // convertValue converts gjson.Result to appropriate Go type
 func (h *SQLParseHook) convertValue(value gjson.Result) any {
-	if h.config != nil && h.config.convertValueFn != nil {
-		return h.config.convertValueFn(value)
+	if h.Config != nil && h.Config.ConvertValueFn != nil {
+		return h.Config.ConvertValueFn(value)
 	}
 	return DefaultConvertValueFn(value)
 }
 
 func (h *SQLParseHook) getOperator(op string) string {
-	if h.config != nil && h.config.operatorMap != nil {
-		return h.config.operatorMap[op]
+	if h.Config != nil && h.Config.OperatorMap != nil {
+		return h.Config.OperatorMap[op]
 	}
 	return DefaultOperatorMap[op]
 }

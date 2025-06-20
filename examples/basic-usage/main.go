@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/jmag-ic/gosura/pkg/hooks"
+	"github.com/jmag-ic/gosura/pkg/hooks/postgres"
+	"github.com/jmag-ic/gosura/pkg/hooks/sql"
 	"github.com/jmag-ic/gosura/pkg/inspector"
 )
 
@@ -26,7 +27,7 @@ func main() {
 
 	// Create inspector and hook
 	inspector := &inspector.HasuraInspector{}
-	sqlParseHook := hooks.NewSQLParseHook(hooks.NewPostgresParseHookConfig())
+	sqlParseHook := sql.NewSQLParseHook(postgres.NewParseHookConfig())
 
 	// Process the filter
 	err := inspector.Inspect(context.Background(), filterJSON, sqlParseHook)

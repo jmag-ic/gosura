@@ -27,7 +27,7 @@ jobs:
     - name: Run linters
       run: |
         go vet ./...
-        go fmt -d .
+        gofmt -d .
 
     - name: Run tests
       run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
@@ -39,8 +39,12 @@ jobs:
         flags: unittests
         name: codecov-umbrella
 
-  test-postgres:
+  test-postgresintegration:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.24]
+        
     services:
       postgres:
         image: postgres:15
@@ -56,12 +60,12 @@ jobs:
           - 5432:5432
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v4 
 
-    - name: Set up Go
+    - name: Set up Go ${{ matrix.go-version }}
       uses: actions/setup-go@v4
       with:
-        go-version: '1.24'
+        go-version: ${{ matrix.go-version }}
 
     - name: Install dependencies
       run: go mod download
@@ -76,7 +80,7 @@ jobs:
       run: |
         # Wait for PostgreSQL to be ready
         sleep 10
-        go run examples/pgx-testing/main.go
+        go test -v -tags=integration ./pkg/hooks/postgres/...
 
   build:
     runs-on: ubuntu-latest
@@ -97,4 +101,4 @@ jobs:
     - name: Build examples
       run: |
         go build -o bin/basic-usage examples/basic-usage/main.go
-        go build -o bin/pgx-testing examples/pgx-testing/main.go 
+        go build -o bin/pgx-integration examples/pgx-integration/main.go 
