@@ -231,10 +231,6 @@ To run integration tests, ensure you have PostgreSQL running with default creden
 
 ---
 
-## 📁 Project Structure
-
-```
-
 ## 🔗 Dependencies
 
 - **Go 1.24+** - Modern Go features and performance
