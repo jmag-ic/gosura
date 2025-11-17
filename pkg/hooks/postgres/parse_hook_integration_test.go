@@ -6,7 +6,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -431,10 +430,10 @@ func TestSQLParseHook_AggregateIntegration(t *testing.T) {
 	require.NoError(t, insertTestData(ctx, conn))
 
 	cases := []struct {
-		name             string
-		filter           string
-		description      string
-		validateResults  func(t *testing.T, rows pgx.Rows)
+		name            string
+		filter          string
+		description     string
+		validateResults func(t *testing.T, rows pgx.Rows)
 	}{
 		{
 			name:        "Count all records",
@@ -510,7 +509,7 @@ func TestSQLParseHook_AggregateIntegration(t *testing.T) {
 				var avgAge float64
 				err := rows.Scan(&count, &avgAge)
 				require.NoError(t, err)
-				require.Equal(t, int64(4), count) // 4 active users
+				require.Equal(t, int64(4), count)       // 4 active users
 				require.InDelta(t, 31.25, avgAge, 0.01) // (30+25+28+42)/4
 			},
 		},
