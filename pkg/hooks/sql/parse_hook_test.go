@@ -400,3 +400,78 @@ func TestSQLParseHook_FullCoverage(t *testing.T) {
 		}
 	})
 }
+
+func TestSQLParseHook_Aggregates(t *testing.T) {
+	tests := []sql.SQLParseTestCase{
+		{
+			Name:               "Simple count",
+			Filter:             `{"aggregate":{"count":"*"}}`,
+			ExpectedWhere:      "",
+			ExpectedAggregates: `COUNT(*) AS count`,
+			Params:             []any{},
+		},
+		{
+			Name:               "Single field sum",
+			Filter:             `{"aggregate":{"sum":"price"}}`,
+			ExpectedWhere:      "",
+			ExpectedAggregates: `SUM("price") AS sum_price`,
+			Params:             []any{},
+		},
+		{
+			Name:               "Multiple fields in sum",
+			Filter:             `{"aggregate":{"sum":["price","quantity"]}}`,
+			ExpectedWhere:      "",
+			ExpectedAggregates: `SUM("price") AS sum_price, SUM("quantity") AS sum_quantity`,
+			Params:             []any{},
+		},
+		{
+			Name:               "Multiple aggregate functions",
+			Filter:             `{"aggregate":{"count":"*","avg":"rating","max":"price"}}`,
+			ExpectedWhere:      "",
+			ExpectedAggregates: `COUNT(*) AS count, AVG("rating") AS avg_rating, MAX("price") AS max_price`,
+			Params:             []any{},
+		},
+		{
+			Name:               "Count with distinct",
+			Filter:             `{"aggregate":{"count":{"field":"user_id","distinct":true}}}`,
+			ExpectedWhere:      "",
+			ExpectedAggregates: `COUNT(DISTINCT "user_id") AS count_user_id`,
+			Params:             []any{},
+		},
+		{
+			Name:               "Aggregate with WHERE clause",
+			Filter:             `{"where":{"status":{"_eq":"active"}},"aggregate":{"count":"*","avg":"rating"}}`,
+			ExpectedWhere:      `"status" = $1`,
+			ExpectedAggregates: `COUNT(*) AS count, AVG("rating") AS avg_rating`,
+			Params:             []any{"active"},
+		},
+		{
+			Name:               "Aggregate with ORDER BY",
+			Filter:             `{"aggregate":{"count":"*","avg":"price"},"order_by":{"avg_price":"desc"}}`,
+			ExpectedWhere:      "",
+			ExpectedAggregates: `COUNT(*) AS count, AVG("price") AS avg_price`,
+			ExpectedOrderBy:    `"avg_price" DESC`,
+			Params:             []any{},
+		},
+		{
+			Name:               "All aggregate functions",
+			Filter:             `{"aggregate":{"count":"*","sum":"price","avg":"rating","min":"stock","max":"created_at"}}`,
+			ExpectedWhere:      "",
+			ExpectedAggregates: `COUNT(*) AS count, SUM("price") AS sum_price, AVG("rating") AS avg_rating, MIN("stock") AS min_stock, MAX("created_at") AS max_created_at`,
+			Params:             []any{},
+		},
+		{
+			Name:   "Unsupported aggregate function",
+			Filter: `{"aggregate":{"unknown_func":"price"}}`,
+			ValidateErr: func(err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "unsupported aggregate function")
+			},
+			Params: []any{},
+		},
+	}
+
+	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
+		return sql.NewSQLParseHook(nil)
+	})
+}

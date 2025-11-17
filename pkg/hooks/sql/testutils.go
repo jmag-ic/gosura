@@ -9,12 +9,13 @@ import (
 )
 
 type SQLParseTestCase struct {
-	Name            string
-	Filter          string
-	ExpectedWhere   string
-	ExpectedOrderBy string
-	Params          []any
-	ValidateErr     func(error)
+	Name               string
+	Filter             string
+	ExpectedWhere      string
+	ExpectedOrderBy    string
+	ExpectedAggregates string
+	Params             []any
+	ValidateErr        func(error)
 }
 
 func RunTestCases(t *testing.T, tests []SQLParseTestCase, newHookFn func() *SQLParseHook) {
@@ -38,6 +39,11 @@ func RunTestCases(t *testing.T, tests []SQLParseTestCase, newHookFn func() *SQLP
 
 			orderByClause := parseHook.GetOrderByClause()
 			assert.Equal(t, tt.ExpectedOrderBy, orderByClause)
+
+			if tt.ExpectedAggregates != "" {
+				aggregates := parseHook.GetAggregates()
+				assert.Equal(t, tt.ExpectedAggregates, aggregates)
+			}
 		})
 	}
 }

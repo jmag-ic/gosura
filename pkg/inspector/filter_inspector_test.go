@@ -42,6 +42,10 @@ type nestedNodeCall struct {
 	source string
 }
 
+type aggregateFieldCall struct {
+	function, field string
+}
+
 // TestHook implements FilterHook for testing
 type TestHook struct {
 	t *testing.T
@@ -52,6 +56,7 @@ type TestHook struct {
 	logicalOpStartCalls  []string
 	logicalOpEndCalls    []string
 	orderByCalls         []orderByCall
+	aggregateFieldCalls  []aggregateFieldCall
 }
 
 func (h *TestHook) OnComparison(ctx context.Context, field string, operator string, value gjson.Result, path []string) error {
@@ -78,6 +83,11 @@ func (h *TestHook) OnLogicalGroupEnd(ctx context.Context, operator string, node 
 
 func (h *TestHook) OnOrderBy(ctx context.Context, field string, direction string, path []string) {
 	h.orderByCalls = append(h.orderByCalls, orderByCall{field, direction, path})
+}
+
+func (h *TestHook) OnAggregateField(ctx context.Context, function string, field string, options gjson.Result) error {
+	h.aggregateFieldCalls = append(h.aggregateFieldCalls, aggregateFieldCall{function, field})
+	return nil
 }
 
 func TestFilterInspector(t *testing.T) {
@@ -442,6 +452,113 @@ func TestFilterInspectorErrors(t *testing.T) {
 			validate: func(h *TestHook, err error) {
 				assert.Error(t, err)
 				assert.Equal(t, "invalid filter node: where", err.Error())
+			},
+		},
+	}
+
+	runTestCases(t, tests)
+}
+
+func TestAggregateInspector(t *testing.T) {
+	tests := []filterInspectorTestCase{
+		{
+			name:   "Empty aggregate",
+			filter: `{"aggregate":{}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Simple count aggregate",
+			filter: `{"aggregate":{"count":"*"}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.aggregateFieldCalls))
+				assert.Equal(t, "count", h.aggregateFieldCalls[0].function)
+				assert.Equal(t, "*", h.aggregateFieldCalls[0].field)
+			},
+		},
+		{
+			name:   "Single field aggregate",
+			filter: `{"aggregate":{"sum":"price"}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.aggregateFieldCalls))
+				assert.Equal(t, "sum", h.aggregateFieldCalls[0].function)
+				assert.Equal(t, "price", h.aggregateFieldCalls[0].field)
+			},
+		},
+		{
+			name:   "Multiple fields in single aggregate",
+			filter: `{"aggregate":{"sum":["price","quantity"]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 2, len(h.aggregateFieldCalls))
+				assert.Equal(t, "price", h.aggregateFieldCalls[0].field)
+				assert.Equal(t, "quantity", h.aggregateFieldCalls[1].field)
+			},
+		},
+		{
+			name:   "Multiple aggregate functions",
+			filter: `{"aggregate":{"count":"*","sum":"price","avg":"rating"}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 3, len(h.aggregateFieldCalls))
+				// Note: order may vary in JSON parsing, so we check all are present
+				functions := make(map[string]bool)
+				for _, call := range h.aggregateFieldCalls {
+					functions[call.function] = true
+				}
+				assert.True(t, functions["count"])
+				assert.True(t, functions["sum"])
+				assert.True(t, functions["avg"])
+			},
+		},
+		{
+			name:   "Count with distinct option",
+			filter: `{"aggregate":{"count":{"field":"user_id","distinct":true}}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.aggregateFieldCalls))
+				assert.Equal(t, "count", h.aggregateFieldCalls[0].function)
+				assert.Equal(t, "user_id", h.aggregateFieldCalls[0].field)
+			},
+		},
+		{
+			name:   "Aggregate with where clause",
+			filter: `{"where":{"status":{"_eq":"active"}},"aggregate":{"count":"*","avg":"rating"}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.comparissonCalls))
+				assert.Equal(t, "status", h.comparissonCalls[0].field)
+				assert.Equal(t, 2, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Aggregate with order by",
+			filter: `{"aggregate":{"count":"*"},"order_by":{"count":"desc"}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.orderByCalls))
+				assert.Equal(t, "count", h.orderByCalls[0].field)
+				assert.Equal(t, "DESC", h.orderByCalls[0].direction)
+			},
+		},
+		{
+			name:   "Invalid aggregate node",
+			filter: `{"aggregate":18}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid aggregate node: must be an object", err.Error())
+			},
+		},
+		{
+			name:   "Empty aggregate function name",
+			filter: `{"aggregate":{"":["price"]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "empty aggregate function name", err.Error())
 			},
 		},
 	}

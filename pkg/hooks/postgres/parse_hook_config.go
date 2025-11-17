@@ -54,9 +54,44 @@ var postgresOperatorMap = map[string]string{
 	"_nt_contained": "<<=",
 }
 
+var postgresAggregateFnMap = map[string]string{
+	// Standard SQL aggregates
+	"count": "COUNT",
+	"sum":   "SUM",
+	"avg":   "AVG",
+	"max":   "MAX",
+	"min":   "MIN",
+
+	// Statistical aggregates
+	"stddev":      "STDDEV",
+	"stddev_pop":  "STDDEV_POP",
+	"stddev_samp": "STDDEV_SAMP",
+	"variance":    "VARIANCE",
+	"var_pop":     "VAR_POP",
+	"var_samp":    "VAR_SAMP",
+
+	// Array and JSON aggregates
+	"array_agg": "ARRAY_AGG",
+	"json_agg":  "JSON_AGG",
+	"jsonb_agg": "JSONB_AGG",
+
+	// String aggregates
+	"string_agg": "STRING_AGG",
+
+	// Boolean aggregates
+	"bool_and": "BOOL_AND",
+	"bool_or":  "BOOL_OR",
+
+	// Other PostgreSQL-specific aggregates
+	"corr":            "CORR",
+	"percentile_cont": "PERCENTILE_CONT",
+	"percentile_disc": "PERCENTILE_DISC",
+}
+
 func NewParseHookConfig() *sql.ParseHookConfig {
 	return &sql.ParseHookConfig{
 		OperatorMap:    postgresOperatorMap,
+		AggregateFnMap: postgresAggregateFnMap,
 		NameDelimiter:  sql.DefaultNameDelimiter,
 		ConvertValueFn: sql.DefaultConvertValueFn,
 	}

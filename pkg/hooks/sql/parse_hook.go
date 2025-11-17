@@ -25,6 +25,17 @@ var DefaultOperatorMap = map[string]string{
 	"_nilike":  "NOT ILIKE",
 }
 
+// DefaultAggregateFnMap maps aggregate function names to SQL aggregate functions
+var DefaultAggregateFnMap = map[string]string{
+	"count":    "COUNT",
+	"sum":      "SUM",
+	"avg":      "AVG",
+	"max":      "MAX",
+	"min":      "MIN",
+	"stddev":   "STDDEV",
+	"variance": "VARIANCE",
+}
+
 var DefaultNameDelimiter = `"`
 
 var DefaultConvertValueFn = func(value gjson.Result) any {
@@ -56,6 +67,7 @@ var DefaultConvertValueFn = func(value gjson.Result) any {
 
 type ParseHookConfig struct {
 	OperatorMap    map[string]string // Map of Hasura operators to SQL operators
+	AggregateFnMap map[string]string // Map of aggregate function names to SQL functions
 	NameDelimiter  string
 	ConvertValueFn func(value gjson.Result) any
 }
@@ -68,6 +80,7 @@ type SQLParseHook struct {
 	LogicalStack []*LogicalGroup // Stack of logical groups
 	CurrentGroup *LogicalGroup   // Current logical group being processed
 	OrderBy      []string        // Order by conditions
+	Aggregates   []string        // Aggregate expressions
 	Config       *ParseHookConfig
 }
 
@@ -87,8 +100,10 @@ type LogicalGroup struct {
 
 func NewDefaultSQLParserHookConfig() *ParseHookConfig {
 	return &ParseHookConfig{
-		OperatorMap:   DefaultOperatorMap,
-		NameDelimiter: DefaultNameDelimiter,
+		OperatorMap:    DefaultOperatorMap,
+		AggregateFnMap: DefaultAggregateFnMap,
+		NameDelimiter:  DefaultNameDelimiter,
+		ConvertValueFn: DefaultConvertValueFn,
 	}
 }
 
@@ -104,6 +119,7 @@ func NewSQLParseHook(config *ParseHookConfig) *SQLParseHook {
 		ParamIndex:   1,
 		LogicalStack: make([]*LogicalGroup, 0),
 		OrderBy:      make([]string, 0),
+		Aggregates:   make([]string, 0),
 		Config:       config,
 	}
 
@@ -187,10 +203,13 @@ func (h *SQLParseHook) OnLogicalGroupEnd(ctx context.Context, operator string, n
 		return
 	}
 
-	// If it's a NOT operator, wrap the condition in an AND group
-	joinOp := group.operator
-	if joinOp == opNOT {
-		joinOp = opAND
+	// Default join operator is AND
+	joinOp := opAND
+
+	// If group operator isn't a NOT operator, use it as join operator
+	// Otherwise, keep AND as default
+	if group.operator != opNOT {
+		joinOp = group.operator
 	}
 
 	condition := strings.Join(group.operations, fmt.Sprintf(" %s ", joinOp))
@@ -295,4 +314,52 @@ func (h *SQLParseHook) getOperator(op string) string {
 		return h.Config.OperatorMap[op]
 	}
 	return DefaultOperatorMap[op]
+}
+
+// OnAggregateField processes an aggregate field and generates SQL
+func (h *SQLParseHook) OnAggregateField(ctx context.Context, function string, field string, options gjson.Result) error {
+	sqlFn := h.getAggregateFunction(function)
+	if sqlFn == "" {
+		return fmt.Errorf("unsupported aggregate function: %s", function)
+	}
+
+	// Parse DISTINCT option
+	hasDistinct := options.Exists() && options.Get("distinct").Bool()
+
+	// Validate DISTINCT with wildcard
+	if hasDistinct && field == "*" {
+		return fmt.Errorf("DISTINCT can only be used with specific fields, not '*'")
+	}
+
+	// Build field expression
+	distinct := ""
+	if hasDistinct {
+		distinct = "DISTINCT "
+	}
+
+	fieldAlias := "*"
+	resultAlias := function
+
+	if field != "*" {
+		fieldAlias = h.getColumnAlias(field, []string{})
+		resultAlias += "_" + field
+	}
+
+	expr := fmt.Sprintf("%s(%s%s) AS %s", sqlFn, distinct, fieldAlias, resultAlias)
+	h.Aggregates = append(h.Aggregates, expr)
+
+	return nil
+}
+
+// GetAggregates returns the aggregate expressions as a comma-separated string
+func (h *SQLParseHook) GetAggregates() string {
+	return strings.Join(h.Aggregates, ", ")
+}
+
+// getAggregateFunction returns the SQL aggregate function for a given name
+func (h *SQLParseHook) getAggregateFunction(fn string) string {
+	if h.Config != nil && h.Config.AggregateFnMap != nil {
+		return h.Config.AggregateFnMap[fn]
+	}
+	return DefaultAggregateFnMap[fn]
 }
