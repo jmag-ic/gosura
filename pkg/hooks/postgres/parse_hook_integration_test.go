@@ -6,6 +6,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -562,7 +563,7 @@ func TestSQLParseHook_AggregateIntegration(t *testing.T) {
 			require.NoError(t, err)
 
 			aggregates := sqlParseHook.GetAggregates()
-			selectClause := aggregates
+			selectClause := strings.Join(aggregates, ", ")
 			if selectClause == "" {
 				selectClause = "*"
 			}

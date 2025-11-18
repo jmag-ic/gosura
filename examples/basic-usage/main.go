@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/jmag-ic/gosura/pkg/hooks/postgres"
 	"github.com/jmag-ic/gosura/pkg/hooks/sql"
@@ -72,10 +73,7 @@ func main() {
 	orderByClause := pgParserHook.GetOrderByClause()
 
 	// User composes the SELECT clause
-	selectClause := aggregates
-	if selectClause == "" {
-		selectClause = "*" // No aggregates, use default
-	}
+	selectClause := strings.Join(aggregates, ", ")
 
 	fmt.Printf("✅ Generated SQL:\n")
 	fmt.Printf("   SELECT %s\n", selectClause)
@@ -108,10 +106,8 @@ func main() {
 	}
 
 	aggregates = pgParserHook.GetAggregates()
-	selectClause = aggregates
-	if selectClause == "" {
-		selectClause = "*"
-	}
+	selectClause = strings.Join(aggregates, ", ")
+
 	fmt.Printf("✅ Generated SQL: SELECT %s FROM orders\n", selectClause)
 
 	fmt.Println("\n🎉 All examples completed successfully!")

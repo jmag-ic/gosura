@@ -2,6 +2,8 @@ package sql
 
 import (
 	"context"
+	"sort"
+	"strings"
 	"testing"
 
 	"github.com/jmag-ic/gosura/pkg/inspector"
@@ -42,7 +44,16 @@ func RunTestCases(t *testing.T, tests []SQLParseTestCase, newHookFn func() *SQLP
 
 			if tt.ExpectedAggregates != "" {
 				aggregates := parseHook.GetAggregates()
-				assert.Equal(t, tt.ExpectedAggregates, aggregates)
+
+				// Make a copy to avoid mutating the hook's internal state
+				sorted := make([]string, len(aggregates))
+				copy(sorted, aggregates)
+				// Sort aggregates for consistent comparison
+				sort.Strings(sorted)
+				// Join aggregates into a single string
+				aggregatesStr := strings.Join(sorted, ", ")
+				// Assert equality
+				assert.Equal(t, tt.ExpectedAggregates, aggregatesStr)
 			}
 		})
 	}

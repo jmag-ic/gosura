@@ -351,9 +351,9 @@ func (h *SQLParseHook) OnAggregateField(ctx context.Context, function string, fi
 	return nil
 }
 
-// GetAggregates returns the aggregate expressions as a comma-separated string
-func (h *SQLParseHook) GetAggregates() string {
-	return strings.Join(h.Aggregates, ", ")
+// GetAggregates returns the aggregate expressions as a slice
+func (h *SQLParseHook) GetAggregates() []string {
+	return h.Aggregates
 }
 
 // getAggregateFunction returns the SQL aggregate function for a given name
