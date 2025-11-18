@@ -65,11 +65,57 @@ var DefaultConvertValueFn = func(value gjson.Result) any {
 	}
 }
 
+// DefaultAggregateBuilder handles standard SQL aggregate functions.
+// It supports DISTINCT and builds expressions like: COUNT(*) AS count
+var DefaultAggregateBuilder = func(
+	function string,
+	sqlFunction string,
+	field string,
+	options gjson.Result,
+	getColumnAlias func(string, []string) string,
+) (string, error) {
+	// Parse DISTINCT option
+	hasDistinct := options.Exists() && options.Get("distinct").Bool()
+
+	// Validate DISTINCT with wildcard
+	if hasDistinct && field == "*" {
+		return "", fmt.Errorf("DISTINCT can only be used with specific fields, not '*'")
+	}
+
+	// Build field expression
+	distinct := ""
+	if hasDistinct {
+		distinct = "DISTINCT "
+	}
+
+	fieldAlias := "*"
+	resultAlias := function
+
+	if field != "*" {
+		fieldAlias = getColumnAlias(field, []string{})
+		resultAlias += "_" + strings.ReplaceAll(field, ".", "_")
+	}
+
+	return fmt.Sprintf("%s(%s%s) AS %s", sqlFunction, distinct, fieldAlias, resultAlias), nil
+}
+
+// AggregateExprBuilder is a function that builds aggregate SQL expressions.
+// It receives the function name, SQL function name, field, options, and a helper
+// to build column aliases. It returns the complete aggregate expression with alias.
+type AggregateExprBuilder func(
+	function string, // e.g., "string_agg"
+	sqlFunction string, // e.g., "STRING_AGG" from map lookup
+	field string, // e.g., "username"
+	options gjson.Result, // Any additional options
+	getColumnAlias func(string, []string) string, // Helper to build column names
+) (expression string, err error)
+
 type ParseHookConfig struct {
-	OperatorMap    map[string]string // Map of Hasura operators to SQL operators
-	AggregateFnMap map[string]string // Map of aggregate function names to SQL functions
-	NameDelimiter  string
-	ConvertValueFn func(value gjson.Result) any
+	OperatorMap        map[string]string    // Map of Hasura operators to SQL operators
+	AggregateFnMap     map[string]string    // Map of aggregate function names to SQL functions
+	AggregateBuilderFn AggregateExprBuilder // Optional custom aggregate expression builder
+	NameDelimiter      string
+	ConvertValueFn     func(value gjson.Result) any
 }
 
 // SQLParseHook generates SQL WHERE clauses from Hasura filters
@@ -323,31 +369,14 @@ func (h *SQLParseHook) OnAggregateField(ctx context.Context, function string, fi
 		return fmt.Errorf("unsupported aggregate function: %s", function)
 	}
 
-	// Parse DISTINCT option
-	hasDistinct := options.Exists() && options.Get("distinct").Bool()
-
-	// Validate DISTINCT with wildcard
-	if hasDistinct && field == "*" {
-		return fmt.Errorf("DISTINCT can only be used with specific fields, not '*'")
+	// Use custom builder if provided, otherwise use default
+	builder := h.getAggregateBuilder()
+	expr, err := builder(function, sqlFn, field, options, h.getColumnAlias)
+	if err != nil {
+		return err
 	}
 
-	// Build field expression
-	distinct := ""
-	if hasDistinct {
-		distinct = "DISTINCT "
-	}
-
-	fieldAlias := "*"
-	resultAlias := function
-
-	if field != "*" {
-		fieldAlias = h.getColumnAlias(field, []string{})
-		resultAlias += "_" + strings.ReplaceAll(field, ".", "_")
-	}
-
-	expr := fmt.Sprintf("%s(%s%s) AS %s", sqlFn, distinct, fieldAlias, resultAlias)
 	h.Aggregates = append(h.Aggregates, expr)
-
 	return nil
 }
 
@@ -362,4 +391,12 @@ func (h *SQLParseHook) getAggregateFunction(fn string) string {
 		return h.Config.AggregateFnMap[fn]
 	}
 	return DefaultAggregateFnMap[fn]
+}
+
+// getAggregateBuilder returns the aggregate expression builder
+func (h *SQLParseHook) getAggregateBuilder() AggregateExprBuilder {
+	if h.Config != nil && h.Config.AggregateBuilderFn != nil {
+		return h.Config.AggregateBuilderFn
+	}
+	return DefaultAggregateBuilder
 }
