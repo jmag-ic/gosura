@@ -55,6 +55,20 @@ func TestPostgresAggregates(t *testing.T) {
 			Params:             []any{},
 		},
 		{
+			Name:               "PERCENTILE_CONT with percentile=0 (min value)",
+			Filter:             `{"aggregate":{"percentile_cont":{"field":"salary","percentile":0}}}`,
+			ExpectedWhere:      "",
+			ExpectedAggregates: `PERCENTILE_CONT(0) WITHIN GROUP (ORDER BY "salary" ASC) AS percentile_cont_salary`,
+			Params:             []any{},
+		},
+		{
+			Name:               "PERCENTILE_CONT with percentile=1 (max value)",
+			Filter:             `{"aggregate":{"percentile_cont":{"field":"salary","percentile":1}}}`,
+			ExpectedWhere:      "",
+			ExpectedAggregates: `PERCENTILE_CONT(1) WITHIN GROUP (ORDER BY "salary" ASC) AS percentile_cont_salary`,
+			Params:             []any{},
+		},
+		{
 			Name:   "PERCENTILE_CONT invalid percentile > 1",
 			Filter: `{"aggregate":{"percentile_cont":{"field":"salary","percentile":1.5}}}`,
 			ValidateErr: func(err error) {
@@ -64,8 +78,8 @@ func TestPostgresAggregates(t *testing.T) {
 			Params: []any{},
 		},
 		{
-			Name:   "PERCENTILE_CONT invalid percentile = 0",
-			Filter: `{"aggregate":{"percentile_cont":{"field":"salary","percentile":0}}}`,
+			Name:   "PERCENTILE_CONT invalid percentile < 0",
+			Filter: `{"aggregate":{"percentile_cont":{"field":"salary","percentile":-0.1}}}`,
 			ValidateErr: func(err error) {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), "percentile between 0 and 1")
