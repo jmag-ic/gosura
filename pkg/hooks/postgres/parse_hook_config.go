@@ -150,7 +150,7 @@ func buildStringAgg(sqlFn string, field string, options gjson.Result, getColumnA
 // Syntax: PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY field)
 func buildPercentile(function, sqlFn, field string, options gjson.Result, getColumnAlias func(string, []string) string) (string, error) {
 	percentile := options.Get("percentile").Float()
-	if percentile <= 0 || percentile >= 1 {
+	if percentile < 0 || percentile > 1 {
 		return "", fmt.Errorf("%s requires percentile between 0 and 1, got %f", function, percentile)
 	}
 
