@@ -304,7 +304,7 @@ func (hi *HasuraInspector) processAggregateNode(ctx context.Context, hooks []Fil
 		}
 
 		// Parse fields based on value type
-		fields, options := hi.parseAggregateValue(aggregateFn, value)
+		fields, options := hi.parseAggregateValue(value)
 		if fields == nil {
 			err = fmt.Errorf("invalid value for aggregate function %s", aggregateFn)
 			return false
@@ -324,7 +324,7 @@ func (hi *HasuraInspector) processAggregateNode(ctx context.Context, hooks []Fil
 }
 
 // parseAggregateValue extracts fields from different value formats
-func (hi *HasuraInspector) parseAggregateValue(fn string, value gjson.Result) ([]string, gjson.Result) {
+func (hi *HasuraInspector) parseAggregateValue(value gjson.Result) ([]string, gjson.Result) {
 	switch value.Type {
 	case gjson.String:
 		// Single field: "sum": "price"
@@ -333,11 +333,17 @@ func (hi *HasuraInspector) parseAggregateValue(fn string, value gjson.Result) ([
 	case gjson.JSON:
 		if value.IsArray() {
 			// Multiple fields: "sum": ["price", "quantity"]
-			fields := make([]string, 0)
-			for _, v := range value.Array() {
-				if v.Type == gjson.String {
-					fields = append(fields, v.String())
+			arr := value.Array()
+			if len(arr) == 0 {
+				return nil, gjson.Result{}
+			}
+
+			fields := make([]string, 0, len(arr))
+			for _, v := range arr {
+				if v.Type != gjson.String {
+					return nil, gjson.Result{}
 				}
+				fields = append(fields, v.String())
 			}
 			return fields, gjson.Result{}
 

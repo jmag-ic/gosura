@@ -561,6 +561,51 @@ func TestAggregateInspector(t *testing.T) {
 				assert.Equal(t, "empty aggregate function name", err.Error())
 			},
 		},
+		{
+			name:   "Empty array in aggregate function",
+			filter: `{"aggregate":{"sum":[]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid value for aggregate function sum", err.Error())
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Array with non-string values (numbers)",
+			filter: `{"aggregate":{"sum":[1, 2, 3]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid value for aggregate function sum", err.Error())
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Array with mixed string and non-string values",
+			filter: `{"aggregate":{"sum":["price", 123, "quantity"]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid value for aggregate function sum", err.Error())
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Array with boolean values",
+			filter: `{"aggregate":{"count":[true, false]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid value for aggregate function count", err.Error())
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Array with object values",
+			filter: `{"aggregate":{"avg":[{"field":"price"}]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid value for aggregate function avg", err.Error())
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
 	}
 
 	runTestCases(t, tests)
