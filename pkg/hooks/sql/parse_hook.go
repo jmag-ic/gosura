@@ -342,7 +342,7 @@ func (h *SQLParseHook) OnAggregateField(ctx context.Context, function string, fi
 
 	if field != "*" {
 		fieldAlias = h.getColumnAlias(field, []string{})
-		resultAlias += "_" + field
+		resultAlias += "_" + strings.ReplaceAll(field, ".", "_")
 	}
 
 	expr := fmt.Sprintf("%s(%s%s) AS %s", sqlFn, distinct, fieldAlias, resultAlias)
