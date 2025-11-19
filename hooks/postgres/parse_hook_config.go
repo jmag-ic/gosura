@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jmag-ic/gosura/pkg/hooks/sql"
+	"github.com/jmag-ic/gosura/hooks/sql"
 	"github.com/tidwall/gjson"
 )
 

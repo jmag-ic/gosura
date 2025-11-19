@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/jmag-ic/gosura/pkg/inspector"
+	"github.com/jmag-ic/gosura/inspector"
 	"github.com/tidwall/gjson"
 )
 

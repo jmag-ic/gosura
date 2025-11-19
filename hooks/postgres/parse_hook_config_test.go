@@ -6,7 +6,7 @@ package postgres
 import (
 	"testing"
 
-	"github.com/jmag-ic/gosura/pkg/hooks/sql"
+	"github.com/jmag-ic/gosura/hooks/sql"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -171,8 +171,8 @@ func TestPostgresAggregates(t *testing.T) {
 		},
 	}
 
-	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
-		return sql.NewSQLParseHook(NewParseHookConfig())
+	sql.RunTestCases(t, tests, func() sql.SQLFilter {
+		return sql.NewSQLFilter(NewParseHookConfig())
 	})
 }
 
@@ -208,7 +208,7 @@ func TestPostgresStatisticalAggregates(t *testing.T) {
 		},
 	}
 
-	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
-		return sql.NewSQLParseHook(NewParseHookConfig())
+	sql.RunTestCases(t, tests, func() sql.SQLFilter {
+		return sql.NewSQLFilter(NewParseHookConfig())
 	})
 }

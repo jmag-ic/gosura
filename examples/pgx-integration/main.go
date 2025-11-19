@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jmag-ic/gosura/pkg/hooks/postgres"
-	"github.com/jmag-ic/gosura/pkg/hooks/sql"
-	"github.com/jmag-ic/gosura/pkg/inspector"
+	"github.com/jmag-ic/gosura/hooks/postgres"
+	"github.com/jmag-ic/gosura/hooks/sql"
+	"github.com/jmag-ic/gosura/inspector"
 )
 
 const (

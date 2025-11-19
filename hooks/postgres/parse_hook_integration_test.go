@@ -9,8 +9,8 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jmag-ic/gosura/pkg/hooks/sql"
-	"github.com/jmag-ic/gosura/pkg/inspector"
+	"github.com/jmag-ic/gosura/hooks/sql"
+	"github.com/jmag-ic/gosura/inspector"
 	"github.com/stretchr/testify/require"
 )
 
@@ -417,7 +417,7 @@ func validateResults(actual, expected []string) bool {
 	return true
 }
 
-func TestSQLParseHook_AggregateIntegration(t *testing.T) {
+func TestSQLParseHook_PostgresAggregateIntegration(t *testing.T) {
 	ctx := context.Background()
 	dbURL := "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
 

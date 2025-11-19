@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmag-ic/gosura/pkg/inspector"
+	"github.com/jmag-ic/gosura/inspector"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -18,25 +18,25 @@ type SQLParseTestCase struct {
 	ExpectedAggregates string
 	Params             []any
 	ValidateErr        func(error)
-	ValidateHook       func(*SQLParseHook)
+	ValidateResult     func(SQLQueryBuilder)
 }
 
-func RunTestCases(t *testing.T, tests []SQLParseTestCase, newHookFn func() *SQLParseHook) {
+func RunTestCases(t *testing.T, tests []SQLParseTestCase, filterBuilder func() SQLFilter) {
 	hasuraInspector := &inspector.HasuraInspector{}
 	ctx := context.Background()
 
 	for _, tt := range tests {
 		t.Run(tt.Name, func(t *testing.T) {
-			parseHook := newHookFn()
+			filter := filterBuilder()
 
-			err := hasuraInspector.Inspect(ctx, tt.Filter, parseHook)
+			err := hasuraInspector.Inspect(ctx, tt.Filter, filter)
 			if tt.ValidateErr != nil {
 				tt.ValidateErr(err)
 			} else {
 				assert.NoError(t, err)
 			}
 
-			qb := parseHook.GetQueryBuilder()
+			qb := filter.GetQueryBuilder()
 
 			// Validate WHERE clause
 			whereClause := strings.Join(qb.Conditions, " AND ")
@@ -61,8 +61,8 @@ func RunTestCases(t *testing.T, tests []SQLParseTestCase, newHookFn func() *SQLP
 			}
 
 			// Custom hook validation
-			if tt.ValidateHook != nil {
-				tt.ValidateHook(parseHook)
+			if tt.ValidateResult != nil {
+				tt.ValidateResult(qb)
 			}
 		})
 	}
