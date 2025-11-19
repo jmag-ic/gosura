@@ -9,7 +9,7 @@ import (
 	"github.com/jmag-ic/gosura/pkg/hooks/sql"
 )
 
-func TestPostgresParseHook_PostgresOperatos(t *testing.T) {
+func TestPostgresParseHook_PostgresOperators(t *testing.T) {
 	tests := []sql.SQLParseTestCase{
 		{
 			Name:          "_eq",

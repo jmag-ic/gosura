@@ -27,7 +27,7 @@ type filterInspectorTestCase struct {
 	validate func(*TestHook, error)
 }
 
-type comparissonCall struct {
+type comparisonCall struct {
 	field, operator string
 	path            []string
 }
@@ -42,20 +42,25 @@ type nestedNodeCall struct {
 	source string
 }
 
+type aggregateFieldCall struct {
+	function, field string
+}
+
 // TestHook implements FilterHook for testing
 type TestHook struct {
 	t *testing.T
 	// Track calls for verification
-	comparissonCalls     []comparissonCall
+	comparisonCalls      []comparisonCall
 	nestedNodeStartCalls []nestedNodeCall
 	nestedNodeEndCalls   []nestedNodeCall
 	logicalOpStartCalls  []string
 	logicalOpEndCalls    []string
 	orderByCalls         []orderByCall
+	aggregateFieldCalls  []aggregateFieldCall
 }
 
 func (h *TestHook) OnComparison(ctx context.Context, field string, operator string, value gjson.Result, path []string) error {
-	h.comparissonCalls = append(h.comparissonCalls, comparissonCall{field, operator, path})
+	h.comparisonCalls = append(h.comparisonCalls, comparisonCall{field, operator, path})
 	return nil
 }
 
@@ -80,6 +85,11 @@ func (h *TestHook) OnOrderBy(ctx context.Context, field string, direction string
 	h.orderByCalls = append(h.orderByCalls, orderByCall{field, direction, path})
 }
 
+func (h *TestHook) OnAggregateField(ctx context.Context, function string, field string, options gjson.Result) error {
+	h.aggregateFieldCalls = append(h.aggregateFieldCalls, aggregateFieldCall{function, field})
+	return nil
+}
+
 func TestFilterInspector(t *testing.T) {
 	tests := []filterInspectorTestCase{
 		{
@@ -87,7 +97,7 @@ func TestFilterInspector(t *testing.T) {
 			filter: "",
 			validate: func(h *TestHook, err error) {
 				assert.Nil(t, err)
-				assert.Equal(t, 0, len(h.comparissonCalls))
+				assert.Equal(t, 0, len(h.comparisonCalls))
 				assert.Equal(t, 0, len(h.nestedNodeStartCalls))
 				assert.Equal(t, 0, len(h.nestedNodeEndCalls))
 				assert.Equal(t, 0, len(h.logicalOpStartCalls))
@@ -99,7 +109,7 @@ func TestFilterInspector(t *testing.T) {
 			filter: `{}`,
 			validate: func(h *TestHook, err error) {
 				assert.Nil(t, err)
-				assert.Equal(t, 0, len(h.comparissonCalls))
+				assert.Equal(t, 0, len(h.comparisonCalls))
 				assert.Equal(t, 0, len(h.nestedNodeStartCalls))
 				assert.Equal(t, 0, len(h.nestedNodeEndCalls))
 				assert.Equal(t, 0, len(h.logicalOpStartCalls))
@@ -111,7 +121,7 @@ func TestFilterInspector(t *testing.T) {
 			filter: `{"where":{}}`,
 			validate: func(h *TestHook, err error) {
 				assert.Nil(t, err)
-				assert.Equal(t, 0, len(h.comparissonCalls))
+				assert.Equal(t, 0, len(h.comparisonCalls))
 				assert.Equal(t, 0, len(h.nestedNodeStartCalls))
 			},
 		},
@@ -128,14 +138,14 @@ func TestFilterInspector(t *testing.T) {
 			filter: `{"where":{"age":{"_gt": 18}}}`,
 			validate: func(h *TestHook, err error) {
 				assert.Nil(t, err)
-				if len(h.comparissonCalls) != 1 {
-					t.Errorf("Expected 1 filter call, got %d", len(h.comparissonCalls))
+				if len(h.comparisonCalls) != 1 {
+					t.Errorf("Expected 1 filter call, got %d", len(h.comparisonCalls))
 				}
-				if h.comparissonCalls[0].field != "age" || h.comparissonCalls[0].operator != "_gt" {
-					t.Errorf("Unexpected filter call: %+v", h.comparissonCalls[0])
+				if h.comparisonCalls[0].field != "age" || h.comparisonCalls[0].operator != "_gt" {
+					t.Errorf("Unexpected filter call: %+v", h.comparisonCalls[0])
 				}
-				if len(h.comparissonCalls[0].path) != 0 {
-					t.Errorf("Unexpected filter call path: %+v", h.comparissonCalls[0].path)
+				if len(h.comparisonCalls[0].path) != 0 {
+					t.Errorf("Unexpected filter call path: %+v", h.comparisonCalls[0].path)
 				}
 			},
 		},
@@ -150,8 +160,8 @@ func TestFilterInspector(t *testing.T) {
 				if h.logicalOpStartCalls[0] != "_and" {
 					t.Errorf("Unexpected logical operator call: %+v", h.logicalOpStartCalls[0])
 				}
-				if len(h.comparissonCalls) != 2 {
-					t.Errorf("Expected 2 filter calls, got %d", len(h.comparissonCalls))
+				if len(h.comparisonCalls) != 2 {
+					t.Errorf("Expected 2 filter calls, got %d", len(h.comparisonCalls))
 				}
 				if len(h.logicalOpEndCalls) != 1 {
 					t.Errorf("Expected 1 logical operator end call, got %d", len(h.logicalOpEndCalls))
@@ -181,20 +191,20 @@ func TestFilterInspector(t *testing.T) {
 				if h.nestedNodeStartCalls[1].field != "city" {
 					t.Errorf("Unexpected nested filter call: %s", h.nestedNodeStartCalls[1])
 				}
-				if len(h.comparissonCalls) != 1 {
-					t.Errorf("Expected 1 filter call, got %d", len(h.comparissonCalls))
+				if len(h.comparisonCalls) != 1 {
+					t.Errorf("Expected 1 filter call, got %d", len(h.comparisonCalls))
 				}
-				if h.comparissonCalls[0].operator != "_eq" {
-					t.Errorf("Unexpected filter call operator: %s", h.comparissonCalls[0].operator)
+				if h.comparisonCalls[0].operator != "_eq" {
+					t.Errorf("Unexpected filter call operator: %s", h.comparisonCalls[0].operator)
 				}
-				if h.comparissonCalls[0].field != "city" {
-					t.Errorf("Unexpected filter call field: %s", h.comparissonCalls[0].field)
+				if h.comparisonCalls[0].field != "city" {
+					t.Errorf("Unexpected filter call field: %s", h.comparisonCalls[0].field)
 				}
-				if len(h.comparissonCalls[0].path) != 1 {
-					t.Errorf("Expected 1 element in path, got %d", len(h.comparissonCalls[0].path))
+				if len(h.comparisonCalls[0].path) != 1 {
+					t.Errorf("Expected 1 element in path, got %d", len(h.comparisonCalls[0].path))
 				}
-				if h.comparissonCalls[0].path[0] != "address" {
-					t.Errorf("Unexpected filter call path: %+v", h.comparissonCalls[0].path)
+				if h.comparisonCalls[0].path[0] != "address" {
+					t.Errorf("Unexpected filter call path: %+v", h.comparisonCalls[0].path)
 				}
 			},
 		},
@@ -227,11 +237,11 @@ func TestFilterInspector(t *testing.T) {
 						t.Errorf("Expected nested filter call %d to be '%s', got '%s'", i, expected, h.nestedNodeStartCalls[i])
 					}
 				}
-				if len(h.comparissonCalls) != 1 {
-					t.Errorf("Expected 1 filter call, got %d", len(h.comparissonCalls))
+				if len(h.comparisonCalls) != 1 {
+					t.Errorf("Expected 1 filter call, got %d", len(h.comparisonCalls))
 				}
-				if h.comparissonCalls[0].field != "city" || h.comparissonCalls[0].operator != "_eq" {
-					t.Errorf("Unexpected filter call: %+v", h.comparissonCalls[0])
+				if h.comparisonCalls[0].field != "city" || h.comparisonCalls[0].operator != "_eq" {
+					t.Errorf("Unexpected filter call: %+v", h.comparisonCalls[0])
 				}
 			},
 		},
@@ -256,11 +266,11 @@ func TestFilterInspector(t *testing.T) {
 			validate: func(h *TestHook, err error) {
 				assert.Nil(t, err)
 				assert.Equal(t, 0, len(h.logicalOpStartCalls))
-				assert.Equal(t, 2, len(h.comparissonCalls))
-				assert.Equal(t, "age", h.comparissonCalls[0].field)
-				assert.Equal(t, "_eq", h.comparissonCalls[0].operator)
-				assert.Equal(t, "name", h.comparissonCalls[1].field)
-				assert.Equal(t, "_eq", h.comparissonCalls[1].operator)
+				assert.Equal(t, 2, len(h.comparisonCalls))
+				assert.Equal(t, "age", h.comparisonCalls[0].field)
+				assert.Equal(t, "_eq", h.comparisonCalls[0].operator)
+				assert.Equal(t, "name", h.comparisonCalls[1].field)
+				assert.Equal(t, "_eq", h.comparisonCalls[1].operator)
 			},
 		},
 		{
@@ -272,9 +282,9 @@ func TestFilterInspector(t *testing.T) {
 				assert.Equal(t, 1, len(h.logicalOpEndCalls))
 				assert.Equal(t, "_and", h.logicalOpStartCalls[0])
 				assert.Equal(t, "_and", h.logicalOpEndCalls[0])
-				assert.Equal(t, 1, len(h.comparissonCalls))
-				assert.Equal(t, "age", h.comparissonCalls[0].field)
-				assert.Equal(t, "_gt", h.comparissonCalls[0].operator)
+				assert.Equal(t, 1, len(h.comparisonCalls))
+				assert.Equal(t, "age", h.comparisonCalls[0].field)
+				assert.Equal(t, "_gt", h.comparisonCalls[0].operator)
 			},
 		},
 		{
@@ -286,9 +296,9 @@ func TestFilterInspector(t *testing.T) {
 				assert.Equal(t, 1, len(h.logicalOpEndCalls))
 				assert.Equal(t, "_or", h.logicalOpStartCalls[0])
 				assert.Equal(t, "_or", h.logicalOpEndCalls[0])
-				assert.Equal(t, 1, len(h.comparissonCalls))
-				assert.Equal(t, "age", h.comparissonCalls[0].field)
-				assert.Equal(t, "_gt", h.comparissonCalls[0].operator)
+				assert.Equal(t, 1, len(h.comparisonCalls))
+				assert.Equal(t, "age", h.comparisonCalls[0].field)
+				assert.Equal(t, "_gt", h.comparisonCalls[0].operator)
 			},
 		},
 		{
@@ -300,9 +310,9 @@ func TestFilterInspector(t *testing.T) {
 				assert.Equal(t, 1, len(h.logicalOpEndCalls))
 				assert.Equal(t, "_not", h.logicalOpStartCalls[0])
 				assert.Equal(t, "_not", h.logicalOpEndCalls[0])
-				assert.Equal(t, 1, len(h.comparissonCalls))
-				assert.Equal(t, "age", h.comparissonCalls[0].field)
-				assert.Equal(t, "_gt", h.comparissonCalls[0].operator)
+				assert.Equal(t, 1, len(h.comparisonCalls))
+				assert.Equal(t, "age", h.comparisonCalls[0].field)
+				assert.Equal(t, "_gt", h.comparisonCalls[0].operator)
 			},
 		},
 		{
@@ -317,19 +327,19 @@ func TestFilterInspector(t *testing.T) {
 			}`,
 			validate: func(h *TestHook, err error) {
 				assert.Nil(t, err)
-				assert.Equal(t, 6, len(h.comparissonCalls))
-				assert.Equal(t, "name", h.comparissonCalls[0].field)
-				assert.Equal(t, "_eq", h.comparissonCalls[0].operator)
-				assert.Equal(t, "age", h.comparissonCalls[1].field)
-				assert.Equal(t, "_eq", h.comparissonCalls[1].operator)
-				assert.Equal(t, "role", h.comparissonCalls[2].field)
-				assert.Equal(t, "_eq", h.comparissonCalls[2].operator)
-				assert.Equal(t, "age", h.comparissonCalls[3].field)
-				assert.Equal(t, "_lt", h.comparissonCalls[3].operator)
-				assert.Equal(t, "role", h.comparissonCalls[4].field)
-				assert.Equal(t, "_eq", h.comparissonCalls[4].operator)
-				assert.Equal(t, "deleted", h.comparissonCalls[5].field)
-				assert.Equal(t, "_eq", h.comparissonCalls[5].operator)
+				assert.Equal(t, 6, len(h.comparisonCalls))
+				assert.Equal(t, "name", h.comparisonCalls[0].field)
+				assert.Equal(t, "_eq", h.comparisonCalls[0].operator)
+				assert.Equal(t, "age", h.comparisonCalls[1].field)
+				assert.Equal(t, "_eq", h.comparisonCalls[1].operator)
+				assert.Equal(t, "role", h.comparisonCalls[2].field)
+				assert.Equal(t, "_eq", h.comparisonCalls[2].operator)
+				assert.Equal(t, "age", h.comparisonCalls[3].field)
+				assert.Equal(t, "_lt", h.comparisonCalls[3].operator)
+				assert.Equal(t, "role", h.comparisonCalls[4].field)
+				assert.Equal(t, "_eq", h.comparisonCalls[4].operator)
+				assert.Equal(t, "deleted", h.comparisonCalls[5].field)
+				assert.Equal(t, "_eq", h.comparisonCalls[5].operator)
 				assert.Equal(t, 3, len(h.logicalOpStartCalls))
 				assert.Equal(t, 3, len(h.logicalOpEndCalls))
 				assert.Equal(t, "_and", h.logicalOpStartCalls[0])
@@ -383,9 +393,9 @@ func TestFilterInspector(t *testing.T) {
 			filter: `{"where":{"age":null}}`,
 			validate: func(h *TestHook, err error) {
 				assert.Nil(t, err)
-				assert.Equal(t, 1, len(h.comparissonCalls))
-				assert.Equal(t, "age", h.comparissonCalls[0].field)
-				assert.Equal(t, "_is_null", h.comparissonCalls[0].operator)
+				assert.Equal(t, 1, len(h.comparisonCalls))
+				assert.Equal(t, "age", h.comparisonCalls[0].field)
+				assert.Equal(t, "_is_null", h.comparisonCalls[0].operator)
 			},
 		},
 	}
@@ -404,7 +414,7 @@ func TestFilterInspectorErrors(t *testing.T) {
 				assert.Equal(t, "empty key found in path: where", err.Error())
 
 				// check the hook calls
-				assert.Equal(t, 0, len(h.comparissonCalls))
+				assert.Equal(t, 0, len(h.comparisonCalls))
 				assert.Equal(t, 0, len(h.nestedNodeStartCalls))
 				assert.Equal(t, 0, len(h.nestedNodeEndCalls))
 				assert.Equal(t, 0, len(h.logicalOpStartCalls))
@@ -442,6 +452,158 @@ func TestFilterInspectorErrors(t *testing.T) {
 			validate: func(h *TestHook, err error) {
 				assert.Error(t, err)
 				assert.Equal(t, "invalid filter node: where", err.Error())
+			},
+		},
+	}
+
+	runTestCases(t, tests)
+}
+
+func TestAggregateInspector(t *testing.T) {
+	tests := []filterInspectorTestCase{
+		{
+			name:   "Empty aggregate",
+			filter: `{"aggregate":{}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Simple count aggregate",
+			filter: `{"aggregate":{"count":"*"}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.aggregateFieldCalls))
+				assert.Equal(t, "count", h.aggregateFieldCalls[0].function)
+				assert.Equal(t, "*", h.aggregateFieldCalls[0].field)
+			},
+		},
+		{
+			name:   "Single field aggregate",
+			filter: `{"aggregate":{"sum":"price"}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.aggregateFieldCalls))
+				assert.Equal(t, "sum", h.aggregateFieldCalls[0].function)
+				assert.Equal(t, "price", h.aggregateFieldCalls[0].field)
+			},
+		},
+		{
+			name:   "Multiple fields in single aggregate",
+			filter: `{"aggregate":{"sum":["price","quantity"]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 2, len(h.aggregateFieldCalls))
+				assert.Equal(t, "price", h.aggregateFieldCalls[0].field)
+				assert.Equal(t, "quantity", h.aggregateFieldCalls[1].field)
+			},
+		},
+		{
+			name:   "Multiple aggregate functions",
+			filter: `{"aggregate":{"count":"*","sum":"price","avg":"rating"}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 3, len(h.aggregateFieldCalls))
+				// Note: order may vary in JSON parsing, so we check all are present
+				functions := make(map[string]bool)
+				for _, call := range h.aggregateFieldCalls {
+					functions[call.function] = true
+				}
+				assert.True(t, functions["count"])
+				assert.True(t, functions["sum"])
+				assert.True(t, functions["avg"])
+			},
+		},
+		{
+			name:   "Count with distinct option",
+			filter: `{"aggregate":{"count":{"field":"user_id","distinct":true}}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.aggregateFieldCalls))
+				assert.Equal(t, "count", h.aggregateFieldCalls[0].function)
+				assert.Equal(t, "user_id", h.aggregateFieldCalls[0].field)
+			},
+		},
+		{
+			name:   "Aggregate with where clause",
+			filter: `{"where":{"status":{"_eq":"active"}},"aggregate":{"count":"*","avg":"rating"}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.comparisonCalls))
+				assert.Equal(t, "status", h.comparisonCalls[0].field)
+				assert.Equal(t, 2, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Aggregate with order by",
+			filter: `{"aggregate":{"count":"*"},"order_by":{"count":"desc"}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.orderByCalls))
+				assert.Equal(t, "count", h.orderByCalls[0].field)
+				assert.Equal(t, "DESC", h.orderByCalls[0].direction)
+			},
+		},
+		{
+			name:   "Invalid aggregate node",
+			filter: `{"aggregate":18}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid aggregate node: must be an object", err.Error())
+			},
+		},
+		{
+			name:   "Empty aggregate function name",
+			filter: `{"aggregate":{"":["price"]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "empty aggregate function name", err.Error())
+			},
+		},
+		{
+			name:   "Empty array in aggregate function",
+			filter: `{"aggregate":{"sum":[]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid value for aggregate function sum", err.Error())
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Array with non-string values (numbers)",
+			filter: `{"aggregate":{"sum":[1, 2, 3]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid value for aggregate function sum", err.Error())
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Array with mixed string and non-string values",
+			filter: `{"aggregate":{"sum":["price", 123, "quantity"]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid value for aggregate function sum", err.Error())
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Array with boolean values",
+			filter: `{"aggregate":{"count":[true, false]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid value for aggregate function count", err.Error())
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
+		{
+			name:   "Array with object values",
+			filter: `{"aggregate":{"avg":[{"field":"price"}]}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Equal(t, "invalid value for aggregate function avg", err.Error())
+				assert.Equal(t, 0, len(h.aggregateFieldCalls))
 			},
 		},
 	}

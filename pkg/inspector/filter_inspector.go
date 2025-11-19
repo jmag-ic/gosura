@@ -17,8 +17,9 @@ const (
 	DirAsc  = "ASC"
 	DirDesc = "DESC"
 	// Hasura filter elements
-	KeyWhere   = "where"
-	KeyOrderBy = "order_by"
+	KeyWhere     = "where"
+	KeyOrderBy   = "order_by"
+	KeyAggregate = "aggregate"
 )
 
 var logicalOperators = map[string]struct{}{OpAnd: {}, OpOr: {}, OpNot: {}}
@@ -37,6 +38,8 @@ type FilterHook interface {
 	OnLogicalGroupEnd(ctx context.Context, operator string, node gjson.Result, path []string)
 	// OnOrderBy is called when a field is ordered
 	OnOrderBy(ctx context.Context, field string, direction string, path []string)
+	// OnAggregateField is called for each field in an aggregate function
+	OnAggregateField(ctx context.Context, function string, field string, options gjson.Result) error
 }
 
 // HasuraInspector
@@ -48,6 +51,12 @@ func (hi *HasuraInspector) Inspect(ctx context.Context, filterJSON string, hooks
 
 	if where := filter.Get(KeyWhere); where.Exists() {
 		if err := hi.processWhereNode(ctx, hooks, "", where, []string{}); err != nil {
+			return err
+		}
+	}
+
+	if aggregate := filter.Get(KeyAggregate); aggregate.Exists() {
+		if err := hi.processAggregateNode(ctx, hooks, aggregate); err != nil {
 			return err
 		}
 	}
@@ -277,4 +286,86 @@ func (hi *HasuraInspector) getOrderDirection(str string) (string, error) {
 	default:
 		return "", fmt.Errorf("invalid order_by direction: %s", str)
 	}
+}
+
+// processAggregateNode processes the aggregate JSON node
+func (hi *HasuraInspector) processAggregateNode(ctx context.Context, hooks []FilterHook, node gjson.Result) error {
+	if !node.IsObject() {
+		return fmt.Errorf("invalid aggregate node: must be an object")
+	}
+
+	var err error
+	node.ForEach(func(k, value gjson.Result) bool {
+		aggregateFn := k.String()
+
+		if strings.TrimSpace(aggregateFn) == "" {
+			err = fmt.Errorf("empty aggregate function name")
+			return false
+		}
+
+		// Parse fields based on value type
+		fields, options := hi.parseAggregateValue(value)
+		if fields == nil {
+			err = fmt.Errorf("invalid value for aggregate function %s", aggregateFn)
+			return false
+		}
+
+		// Process each field
+		for _, field := range fields {
+			if err = hi.notifyAggregateField(ctx, hooks, aggregateFn, field, options); err != nil {
+				return false
+			}
+		}
+
+		return true
+	})
+
+	return err
+}
+
+// parseAggregateValue extracts fields from different value formats
+func (hi *HasuraInspector) parseAggregateValue(value gjson.Result) ([]string, gjson.Result) {
+	switch value.Type {
+	case gjson.String:
+		// Single field: "sum": "price"
+		return []string{value.String()}, gjson.Result{}
+
+	case gjson.JSON:
+		if value.IsArray() {
+			// Multiple fields: "sum": ["price", "quantity"]
+			arr := value.Array()
+			if len(arr) == 0 {
+				return nil, gjson.Result{}
+			}
+
+			fields := make([]string, 0, len(arr))
+			for _, v := range arr {
+				if v.Type != gjson.String {
+					return nil, gjson.Result{}
+				}
+				fields = append(fields, v.String())
+			}
+			return fields, gjson.Result{}
+
+		} else if value.IsObject() {
+			// Advanced options: "count": { "field": "id", "distinct": true }
+			field := value.Get("field").String()
+			if field == "" {
+				field = "*"
+			}
+			return []string{field}, value
+		}
+	}
+
+	return nil, gjson.Result{}
+}
+
+// notifyAggregateField notifies hooks about an aggregate field
+func (hi *HasuraInspector) notifyAggregateField(ctx context.Context, hooks []FilterHook, function, field string, options gjson.Result) error {
+	for _, hook := range hooks {
+		if err := hook.OnAggregateField(ctx, function, field, options); err != nil {
+			return err
+		}
+	}
+	return nil
 }

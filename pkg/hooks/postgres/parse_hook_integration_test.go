@@ -6,6 +6,7 @@ package postgres
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -415,4 +416,171 @@ func validateResults(actual, expected []string) bool {
 	}
 
 	return true
+}
+
+func TestSQLParseHook_AggregateIntegration(t *testing.T) {
+	ctx := context.Background()
+	dbURL := "postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable"
+
+	conn, err := pgx.Connect(ctx, dbURL)
+	require.NoError(t, err)
+	defer conn.Close(ctx)
+
+	require.NoError(t, createTestTable(ctx, conn))
+	defer dropTestTable(ctx, conn)
+	require.NoError(t, insertTestData(ctx, conn))
+
+	cases := []struct {
+		name            string
+		filter          string
+		description     string
+		validateResults func(t *testing.T, rows pgx.Rows)
+	}{
+		{
+			name:        "Count all records",
+			filter:      `{"aggregate":{"count":"*"}}`,
+			description: "Count all records in the table",
+			validateResults: func(t *testing.T, rows pgx.Rows) {
+				require.True(t, rows.Next())
+				var count int64
+				err := rows.Scan(&count)
+				require.NoError(t, err)
+				require.Equal(t, int64(5), count)
+			},
+		},
+		{
+			name:        "Sum of ages",
+			filter:      `{"aggregate":{"sum":"age"}}`,
+			description: "Sum all ages (30+25+35+28+42 = 160)",
+			validateResults: func(t *testing.T, rows pgx.Rows) {
+				require.True(t, rows.Next())
+				var sum int64
+				err := rows.Scan(&sum)
+				require.NoError(t, err)
+				require.Equal(t, int64(160), sum)
+			},
+		},
+		{
+			name:        "Average age",
+			filter:      `{"aggregate":{"avg":"age"}}`,
+			description: "Average age (160/5 = 32)",
+			validateResults: func(t *testing.T, rows pgx.Rows) {
+				require.True(t, rows.Next())
+				var avg float64
+				err := rows.Scan(&avg)
+				require.NoError(t, err)
+				require.InDelta(t, 32.0, avg, 0.01)
+			},
+		},
+		{
+			name:        "Min and max age",
+			filter:      `{"aggregate":{"min":"age","max":"age"}}`,
+			description: "Min age (25) and Max age (42)",
+			validateResults: func(t *testing.T, rows pgx.Rows) {
+				require.True(t, rows.Next())
+				var min, max int64
+				err := rows.Scan(&min, &max)
+				require.NoError(t, err)
+				require.Equal(t, int64(25), min)
+				require.Equal(t, int64(42), max)
+			},
+		},
+		{
+			name:        "Multiple aggregates",
+			filter:      `{"aggregate":{"count":"*","sum":"age","avg":"average"}}`,
+			description: "Count, sum of ages, and average of averages",
+			validateResults: func(t *testing.T, rows pgx.Rows) {
+				require.True(t, rows.Next())
+				var count, sumAge int64
+				var avgAverage float64
+				err := rows.Scan(&count, &sumAge, &avgAverage)
+				require.NoError(t, err)
+				require.Equal(t, int64(5), count)
+				require.Equal(t, int64(160), sumAge)
+				require.InDelta(t, 88.1, avgAverage, 0.1)
+			},
+		},
+		{
+			name:        "Aggregate with WHERE clause",
+			filter:      `{"where":{"is_active":{"_eq":true}},"aggregate":{"count":"*","avg":"age"}}`,
+			description: "Count and average age of active users only",
+			validateResults: func(t *testing.T, rows pgx.Rows) {
+				require.True(t, rows.Next())
+				var count int64
+				var avgAge float64
+				err := rows.Scan(&count, &avgAge)
+				require.NoError(t, err)
+				require.Equal(t, int64(4), count)       // 4 active users
+				require.InDelta(t, 31.25, avgAge, 0.01) // (30+25+28+42)/4
+			},
+		},
+		{
+			name:        "Count distinct with option",
+			filter:      `{"aggregate":{"count":{"field":"is_active","distinct":true}}}`,
+			description: "Count distinct is_active values (true and false = 2)",
+			validateResults: func(t *testing.T, rows pgx.Rows) {
+				require.True(t, rows.Next())
+				var count int64
+				err := rows.Scan(&count)
+				require.NoError(t, err)
+				require.Equal(t, int64(2), count)
+			},
+		},
+		{
+			name:        "PostgreSQL-specific: STDDEV",
+			filter:      `{"aggregate":{"stddev":"age"}}`,
+			description: "Standard deviation of ages",
+			validateResults: func(t *testing.T, rows pgx.Rows) {
+				require.True(t, rows.Next())
+				var stddev float64
+				err := rows.Scan(&stddev)
+				require.NoError(t, err)
+				require.Greater(t, stddev, 0.0)
+			},
+		},
+		{
+			name:        "PostgreSQL-specific: VARIANCE",
+			filter:      `{"aggregate":{"variance":"age"}}`,
+			description: "Variance of ages",
+			validateResults: func(t *testing.T, rows pgx.Rows) {
+				require.True(t, rows.Next())
+				var variance float64
+				err := rows.Scan(&variance)
+				require.NoError(t, err)
+				require.Greater(t, variance, 0.0)
+			},
+		},
+	}
+
+	hasuraInspector := &inspector.HasuraInspector{}
+	postgresHookConfig := NewParseHookConfig()
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			sqlParseHook := sql.NewSQLParseHook(postgresHookConfig)
+
+			err := hasuraInspector.Inspect(ctx, c.filter, sqlParseHook)
+			require.NoError(t, err)
+
+			aggregates := sqlParseHook.GetAggregates()
+			selectClause := strings.Join(aggregates, ", ")
+			if selectClause == "" {
+				selectClause = "*"
+			}
+			whereClause, params := sqlParseHook.GetWhereClause()
+
+			var sqlQuery string
+			if whereClause != "" {
+				sqlQuery = fmt.Sprintf("SELECT %s FROM public.%s WHERE %s", selectClause, TABLE_NAME, whereClause)
+			} else {
+				sqlQuery = fmt.Sprintf("SELECT %s FROM public.%s", selectClause, TABLE_NAME)
+			}
+
+			rows, err := conn.Query(ctx, sqlQuery, params...)
+			require.NoError(t, err)
+			defer rows.Close()
+
+			c.validateResults(t, rows)
+		})
+	}
 }
