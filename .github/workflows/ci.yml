@@ -80,7 +80,7 @@ jobs:
       run: |
         # Wait for PostgreSQL to be ready
         sleep 10
-        go test -v -tags=integration ./pkg/hooks/postgres/...
+        go test -v -tags=integration ./hooks/postgres/...
 
   build:
     runs-on: ubuntu-latest

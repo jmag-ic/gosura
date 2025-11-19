@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jmag-ic/gosura/pkg/hooks/postgres"
-	"github.com/jmag-ic/gosura/pkg/hooks/sql"
-	"github.com/jmag-ic/gosura/pkg/inspector"
+	"github.com/jmag-ic/gosura/hooks/postgres"
+	"github.com/jmag-ic/gosura/hooks/sql"
+	"github.com/jmag-ic/gosura/inspector"
 )
 
 const (
@@ -18,7 +18,7 @@ const (
 	POSTGRES_HOST     = "localhost"
 	POSTGRES_PORT     = "5432"
 	POSTGRES_DB       = "postgres"
-	TABLE_NAME        = "gosura_pgx"
+	TABLE_NAME        = "public.gosura_pgx"
 )
 
 func main() {
@@ -58,8 +58,8 @@ func main() {
 
 func createTable(ctx context.Context, db *pgx.Conn) error {
 	createTableSQL := fmt.Sprintf(`
-	DROP TABLE IF EXISTS public.%s;
-	CREATE TABLE public.%s (
+	DROP TABLE IF EXISTS %s;
+	CREATE TABLE %s (
 		id serial NOT NULL,
 		username text UNIQUE NOT NULL,
 		name text NULL,
@@ -80,7 +80,7 @@ func createTable(ctx context.Context, db *pgx.Conn) error {
 }
 
 func dropTable(ctx context.Context, db *pgx.Conn) error {
-	dropTableSQL := fmt.Sprintf("DROP TABLE IF EXISTS public.%s", TABLE_NAME)
+	dropTableSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s", TABLE_NAME)
 	_, err := db.Exec(ctx, dropTableSQL)
 	if err != nil {
 		return fmt.Errorf("failed to drop table: %w", err)
@@ -90,7 +90,7 @@ func dropTable(ctx context.Context, db *pgx.Conn) error {
 
 func insertData(ctx context.Context, db *pgx.Conn) error {
 	insertSQL := fmt.Sprintf(`
-	INSERT INTO public.%s (username, name, age, average, is_active, tags, metadata, ip) VALUES
+	INSERT INTO %s (username, name, age, average, is_active, tags, metadata, ip) VALUES
 	('johndoe', 'John Doe', 30, 85.5, true, ARRAY['developer', 'golang'], '{"role": "admin", "department": "engineering", "skills": ["go", "postgresql"]}', '192.168.1.0/24'),
 	('janesmith', 'Jane Smith', 25, 92.3, true, ARRAY['designer', 'ui'], '{"role": "user", "department": "design", "preferences": {"theme": "dark"}}', '10.0.0.0/24'),
 	('bobjohnson', 'Bob Johnson', 35, 78.9, false, ARRAY['manager'], '{"role": "manager", "department": "sales", "reports": ["team1", "team2"]}', '172.16.0.0/24'),
@@ -416,11 +416,11 @@ func run(conn *pgx.Conn) (int, int, []string) {
 		fmt.Printf("   Filter: %s\n", c.filter)
 		fmt.Printf("   Expected usernames: %v\n", c.expectedUsernames)
 
-		// Create sqlParseHook with PostgreSQL config
-		sqlParseHook := sql.NewSQLParseHook(postgresHookConfig)
+		// Create SQL filter with PostgreSQL config
+		filter := sql.NewSQLFilter(postgresHookConfig)
 
 		// Process the filter
-		err := inspector.Inspect(context.Background(), c.filter, sqlParseHook)
+		err := inspector.Inspect(context.Background(), c.filter, filter)
 		if err != nil {
 			fmt.Printf("   ❌ Error processing filter: %v\n", err)
 			failureCount++
@@ -429,14 +429,14 @@ func run(conn *pgx.Conn) (int, int, []string) {
 		}
 
 		// Get the generated SQL
-		whereClause, params := sqlParseHook.GetWhereClause()
-		sqlQuery := fmt.Sprintf("SELECT id, username, name, age, metadata FROM public.%s WHERE %s", TABLE_NAME, whereClause)
+		queryBuilder := filter.GetQueryBuilder()
+		sqlQuery := queryBuilder.Build(TABLE_NAME, "id", "username", "name", "age", "metadata")
 
 		fmt.Printf("   Generated SQL: %s\n", sqlQuery)
-		fmt.Printf("   Parameters: %v\n", params)
+		fmt.Printf("   Parameters: %v\n", queryBuilder.Params)
 
 		// Execute the query
-		rows, err := conn.Query(context.Background(), sqlQuery, params...)
+		rows, err := conn.Query(context.Background(), sqlQuery, queryBuilder.Params...)
 		if err != nil {
 			fmt.Printf("   ❌ Query execution error: %v\n", err)
 			failureCount++

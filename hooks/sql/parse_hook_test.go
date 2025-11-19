@@ -6,7 +6,7 @@ package sql_test
 import (
 	"testing"
 
-	"github.com/jmag-ic/gosura/pkg/hooks/sql"
+	"github.com/jmag-ic/gosura/hooks/sql"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -50,8 +50,8 @@ func TestSQLParseHook_EmptyFilter(t *testing.T) {
 		},
 	}
 
-	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
-		return sql.NewSQLParseHook(nil)
+	sql.RunTestCases(t, tests, func() sql.SQLFilter {
+		return sql.NewSQLFilter(nil)
 	})
 }
 
@@ -112,8 +112,8 @@ func TestSQLParseHook_LogicalGroups(t *testing.T) {
 			Params:        []any{"jose", int64(18), int64(18), "admin"},
 		},
 	}
-	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
-		return sql.NewSQLParseHook(nil)
+	sql.RunTestCases(t, tests, func() sql.SQLFilter {
+		return sql.NewSQLFilter(nil)
 	})
 }
 
@@ -211,8 +211,8 @@ func TestSQLParseHook_ComparisonOperators(t *testing.T) {
 		},
 	}
 
-	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
-		return sql.NewSQLParseHook(nil)
+	sql.RunTestCases(t, tests, func() sql.SQLFilter {
+		return sql.NewSQLFilter(nil)
 	})
 }
 
@@ -238,8 +238,8 @@ func TestSQLParseHook_Associations(t *testing.T) {
 		},
 	}
 
-	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
-		return sql.NewSQLParseHook(nil)
+	sql.RunTestCases(t, tests, func() sql.SQLFilter {
+		return sql.NewSQLFilter(nil)
 	})
 }
 
@@ -281,8 +281,8 @@ func TestSQLParseHook_OrderBy(t *testing.T) {
 			ExpectedOrderBy: `"user"."name" ASC, "user"."age" DESC`,
 		},
 	}
-	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
-		return sql.NewSQLParseHook(nil)
+	sql.RunTestCases(t, tests, func() sql.SQLFilter {
+		return sql.NewSQLFilter(nil)
 	})
 }
 
@@ -320,8 +320,8 @@ func TestSQLParseHook_Errors(t *testing.T) {
 		},
 	}
 
-	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
-		return sql.NewSQLParseHook(nil)
+	sql.RunTestCases(t, tests, func() sql.SQLFilter {
+		return sql.NewSQLFilter(nil)
 	})
 }
 
@@ -390,7 +390,7 @@ func TestSQLParseHook_FullCoverage(t *testing.T) {
 		},
 	}
 
-	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
+	sql.RunTestCases(t, tests, func() sql.SQLFilter {
 		return &sql.SQLParseHook{
 			Conditions:   make([]string, 0),
 			Params:       make([]any, 0),
@@ -471,8 +471,8 @@ func TestSQLParseHook_Aggregates(t *testing.T) {
 		},
 	}
 
-	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
-		return sql.NewSQLParseHook(nil)
+	sql.RunTestCases(t, tests, func() sql.SQLFilter {
+		return sql.NewSQLFilter(nil)
 	})
 }
 
@@ -483,10 +483,10 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 			Filter:        `{"limit": 10}`,
 			ExpectedWhere: "",
 			Params:        []any{},
-			ValidateHook: func(hook *sql.SQLParseHook) {
-				assert.NotNil(t, hook.GetLimit())
-				assert.Equal(t, 10, *hook.GetLimit())
-				assert.Nil(t, hook.GetOffset())
+			ValidateResult: func(qb sql.SQLQueryBuilder) {
+				assert.NotNil(t, qb.Limit)
+				assert.Equal(t, 10, *qb.Limit)
+				assert.Nil(t, qb.Offset)
 			},
 		},
 		{
@@ -494,10 +494,10 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 			Filter:        `{"offset": 20}`,
 			ExpectedWhere: "",
 			Params:        []any{},
-			ValidateHook: func(hook *sql.SQLParseHook) {
-				assert.Nil(t, hook.GetLimit())
-				assert.NotNil(t, hook.GetOffset())
-				assert.Equal(t, 20, *hook.GetOffset())
+			ValidateResult: func(qb sql.SQLQueryBuilder) {
+				assert.Nil(t, qb.Limit)
+				assert.NotNil(t, qb.Offset)
+				assert.Equal(t, 20, *qb.Offset)
 			},
 		},
 		{
@@ -505,11 +505,11 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 			Filter:        `{"limit": 10, "offset": 20}`,
 			ExpectedWhere: "",
 			Params:        []any{},
-			ValidateHook: func(hook *sql.SQLParseHook) {
-				assert.NotNil(t, hook.GetLimit())
-				assert.Equal(t, 10, *hook.GetLimit())
-				assert.NotNil(t, hook.GetOffset())
-				assert.Equal(t, 20, *hook.GetOffset())
+			ValidateResult: func(qb sql.SQLQueryBuilder) {
+				assert.NotNil(t, qb.Limit)
+				assert.Equal(t, 10, *qb.Limit)
+				assert.NotNil(t, qb.Offset)
+				assert.Equal(t, 20, *qb.Offset)
 			},
 		},
 		{
@@ -517,9 +517,9 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 			Filter:        `{"limit": 0}`,
 			ExpectedWhere: "",
 			Params:        []any{},
-			ValidateHook: func(hook *sql.SQLParseHook) {
-				assert.NotNil(t, hook.GetLimit())
-				assert.Equal(t, 0, *hook.GetLimit())
+			ValidateResult: func(qb sql.SQLQueryBuilder) {
+				assert.NotNil(t, qb.Limit)
+				assert.Equal(t, 0, *qb.Limit)
 			},
 		},
 		{
@@ -527,9 +527,9 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 			Filter:        `{"offset": 0}`,
 			ExpectedWhere: "",
 			Params:        []any{},
-			ValidateHook: func(hook *sql.SQLParseHook) {
-				assert.NotNil(t, hook.GetOffset())
-				assert.Equal(t, 0, *hook.GetOffset())
+			ValidateResult: func(qb sql.SQLQueryBuilder) {
+				assert.NotNil(t, qb.Offset)
+				assert.Equal(t, 0, *qb.Offset)
 			},
 		},
 		{
@@ -537,11 +537,11 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 			Filter:        `{"where": {"status": {"_eq": "active"}}, "limit": 5, "offset": 10}`,
 			ExpectedWhere: `"status" = $1`,
 			Params:        []any{"active"},
-			ValidateHook: func(hook *sql.SQLParseHook) {
-				assert.NotNil(t, hook.GetLimit())
-				assert.Equal(t, 5, *hook.GetLimit())
-				assert.NotNil(t, hook.GetOffset())
-				assert.Equal(t, 10, *hook.GetOffset())
+			ValidateResult: func(qb sql.SQLQueryBuilder) {
+				assert.NotNil(t, qb.Limit)
+				assert.Equal(t, 5, *qb.Limit)
+				assert.NotNil(t, qb.Offset)
+				assert.Equal(t, 10, *qb.Offset)
 			},
 		},
 		{
@@ -550,11 +550,11 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 			ExpectedWhere:   "",
 			ExpectedOrderBy: `"created_at" DESC`,
 			Params:          []any{},
-			ValidateHook: func(hook *sql.SQLParseHook) {
-				assert.NotNil(t, hook.GetLimit())
-				assert.Equal(t, 25, *hook.GetLimit())
-				assert.NotNil(t, hook.GetOffset())
-				assert.Equal(t, 50, *hook.GetOffset())
+			ValidateResult: func(qb sql.SQLQueryBuilder) {
+				assert.NotNil(t, qb.Limit)
+				assert.Equal(t, 25, *qb.Limit)
+				assert.NotNil(t, qb.Offset)
+				assert.Equal(t, 50, *qb.Offset)
 			},
 		},
 		{
@@ -563,10 +563,10 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 			ExpectedWhere:      "",
 			ExpectedAggregates: `AVG("rating") AS avg_rating, COUNT(*) AS count`,
 			Params:             []any{},
-			ValidateHook: func(hook *sql.SQLParseHook) {
-				assert.NotNil(t, hook.GetLimit())
-				assert.Equal(t, 100, *hook.GetLimit())
-				assert.Nil(t, hook.GetOffset())
+			ValidateResult: func(qb sql.SQLQueryBuilder) {
+				assert.NotNil(t, qb.Limit)
+				assert.Equal(t, 100, *qb.Limit)
+				assert.Nil(t, qb.Offset)
 			},
 		},
 		{
@@ -575,11 +575,11 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 			ExpectedWhere:   `"status" = $1`,
 			ExpectedOrderBy: `"created_at" DESC`,
 			Params:          []any{"active"},
-			ValidateHook: func(hook *sql.SQLParseHook) {
-				assert.NotNil(t, hook.GetLimit())
-				assert.Equal(t, 10, *hook.GetLimit())
-				assert.NotNil(t, hook.GetOffset())
-				assert.Equal(t, 20, *hook.GetOffset())
+			ValidateResult: func(qb sql.SQLQueryBuilder) {
+				assert.NotNil(t, qb.Limit)
+				assert.Equal(t, 10, *qb.Limit)
+				assert.NotNil(t, qb.Offset)
+				assert.Equal(t, 20, *qb.Offset)
 			},
 		},
 		{
@@ -587,9 +587,9 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 			Filter:        `{"limit": 2147483647}`,
 			ExpectedWhere: "",
 			Params:        []any{},
-			ValidateHook: func(hook *sql.SQLParseHook) {
-				assert.NotNil(t, hook.GetLimit())
-				assert.Equal(t, 2147483647, *hook.GetLimit())
+			ValidateResult: func(qb sql.SQLQueryBuilder) {
+				assert.NotNil(t, qb.Limit)
+				assert.Equal(t, 2147483647, *qb.Limit)
 			},
 		},
 		{
@@ -597,9 +597,9 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 			Filter:        `{"offset": 1000000}`,
 			ExpectedWhere: "",
 			Params:        []any{},
-			ValidateHook: func(hook *sql.SQLParseHook) {
-				assert.NotNil(t, hook.GetOffset())
-				assert.Equal(t, 1000000, *hook.GetOffset())
+			ValidateResult: func(qb sql.SQLQueryBuilder) {
+				assert.NotNil(t, qb.Offset)
+				assert.Equal(t, 1000000, *qb.Offset)
 			},
 		},
 		{
@@ -644,7 +644,7 @@ func TestSQLParseHook_Pagination(t *testing.T) {
 		},
 	}
 
-	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
-		return sql.NewSQLParseHook(nil)
+	sql.RunTestCases(t, tests, func() sql.SQLFilter {
+		return sql.NewSQLFilter(nil)
 	})
 }

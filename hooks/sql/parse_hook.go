@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/jmag-ic/gosura/inspector"
 	"github.com/tidwall/gjson"
 )
 
@@ -73,13 +74,13 @@ var DefaultAggregateBuilder = func(
 	field string,
 	options gjson.Result,
 	getColumnAlias func(string, []string) string,
-) (string, error) {
+) (string, string, error) {
 	// Parse DISTINCT option
 	hasDistinct := options.Exists() && options.Get("distinct").Bool()
 
 	// Validate DISTINCT with wildcard
 	if hasDistinct && field == "*" {
-		return "", fmt.Errorf("DISTINCT can only be used with specific fields, not '*'")
+		return "", "", fmt.Errorf("DISTINCT can only be used with specific fields, not '*'")
 	}
 
 	// Build field expression
@@ -96,7 +97,7 @@ var DefaultAggregateBuilder = func(
 		resultAlias += "_" + strings.ReplaceAll(field, ".", "_")
 	}
 
-	return fmt.Sprintf("%s(%s%s) AS %s", sqlFunction, distinct, fieldAlias, resultAlias), nil
+	return fmt.Sprintf("%s(%s%s)", sqlFunction, distinct, fieldAlias), resultAlias, nil
 }
 
 // AggregateExprBuilder is a function that builds aggregate SQL expressions.
@@ -108,7 +109,7 @@ type AggregateExprBuilder func(
 	field string, // e.g., "username"
 	options gjson.Result, // Any additional options
 	getColumnAlias func(string, []string) string, // Helper to build column names
-) (expression string, err error)
+) (expr string, alias string, err error)
 
 type ParseHookConfig struct {
 	OperatorMap        map[string]string    // Map of Hasura operators to SQL operators
@@ -120,16 +121,17 @@ type ParseHookConfig struct {
 
 // SQLParseHook generates SQL WHERE clauses from Hasura filters
 type SQLParseHook struct {
-	Conditions   []string        // Main conditions array
-	Params       []any           // Parameters for placeholders
-	ParamIndex   int             // Current parameter index
-	LogicalStack []*LogicalGroup // Stack of logical groups
-	CurrentGroup *LogicalGroup   // Current logical group being processed
-	OrderBy      []string        // Order by conditions
-	Aggregates   []string        // Aggregate expressions
-	Config       *ParseHookConfig
-	Limit        *int // Optional limit for results
-	Offset       *int // Optional offset for results
+	Conditions      []string          // Main conditions array
+	Params          []any             // Parameters for placeholders
+	ParamIndex      int               // Current parameter index
+	LogicalStack    []*LogicalGroup   // Stack of logical groups
+	CurrentGroup    *LogicalGroup     // Current logical group being processed
+	OrderBy         []string          // Order by conditions
+	Aggregates      map[string]string // Aggregate expressions
+	AggregatesSlice []string          // Slice of aggregate expressions to preserve order
+	Config          *ParseHookConfig
+	Limit           *int // Optional limit for results
+	Offset          *int // Optional offset for results
 }
 
 // Private types and constants for the hook implementation
@@ -153,25 +155,6 @@ func NewDefaultSQLParserHookConfig() *ParseHookConfig {
 		NameDelimiter:  DefaultNameDelimiter,
 		ConvertValueFn: DefaultConvertValueFn,
 	}
-}
-
-// NewSQLParseHook creates a new SQLWhereHook instance
-func NewSQLParseHook(config *ParseHookConfig) *SQLParseHook {
-	if config == nil {
-		config = NewDefaultSQLParserHookConfig()
-	}
-
-	h := &SQLParseHook{
-		Conditions:   make([]string, 0),
-		Params:       make([]any, 0),
-		ParamIndex:   1,
-		LogicalStack: make([]*LogicalGroup, 0),
-		OrderBy:      make([]string, 0),
-		Aggregates:   make([]string, 0),
-		Config:       config,
-	}
-
-	return h
 }
 
 // OnComparison handles field operations and converts them to SQL conditions
@@ -279,22 +262,6 @@ func (h *SQLParseHook) OnOrderBy(ctx context.Context, field string, direction st
 	h.OrderBy = append(h.OrderBy, fmt.Sprintf("%s %s", alias, direction))
 }
 
-// GetWhereClause returns the final WHERE clause and parameters
-func (h *SQLParseHook) GetWhereClause() (string, []any) {
-	// Join all conditions with AND
-	whereClause := strings.Join(h.Conditions, fmt.Sprintf(" %s ", opAND))
-
-	// Clean up any extra spaces
-	whereClause = strings.TrimSpace(whereClause)
-
-	return whereClause, h.Params
-}
-
-// GetOrderByClause returns the final ORDER BY clause
-func (h *SQLParseHook) GetOrderByClause() string {
-	return strings.Join(h.OrderBy, ", ")
-}
-
 // addCondition adds a condition to the current group or main conditions
 func (h *SQLParseHook) addCondition(condition string) {
 	if h.CurrentGroup != nil {
@@ -373,18 +340,15 @@ func (h *SQLParseHook) OnAggregateField(ctx context.Context, function string, fi
 
 	// Use custom builder if provided, otherwise use default
 	builder := h.getAggregateBuilder()
-	expr, err := builder(function, sqlFn, field, options, h.getColumnAlias)
+	expr, alias, err := builder(function, sqlFn, field, options, h.getColumnAlias)
 	if err != nil {
 		return err
 	}
 
-	h.Aggregates = append(h.Aggregates, expr)
+	// Store the aggregate expression
+	h.Aggregates[alias] = expr
+	h.AggregatesSlice = append(h.AggregatesSlice, alias)
 	return nil
-}
-
-// GetAggregates returns the aggregate expressions as a slice
-func (h *SQLParseHook) GetAggregates() []string {
-	return h.Aggregates
 }
 
 // getAggregateFunction returns the SQL aggregate function for a given name
@@ -413,6 +377,18 @@ func (h *SQLParseHook) OnOffset(ctx context.Context, offset int) {
 	h.Offset = &offset
 }
 
+func (h *SQLParseHook) GetQueryBuilder() SQLQueryBuilder {
+	return SQLQueryBuilder{
+		Aggregates:      h.Aggregates,
+		AggregatesSlice: h.AggregatesSlice,
+		Conditions:      h.Conditions,
+		OrderBy:         h.OrderBy,
+		Limit:           h.Limit,
+		Offset:          h.Offset,
+		Params:          h.Params,
+	}
+}
+
 // GetLimit returns the limit value if set, nil otherwise
 func (h *SQLParseHook) GetLimit() *int {
 	return h.Limit
@@ -421,4 +397,94 @@ func (h *SQLParseHook) GetLimit() *int {
 // GetOffset returns the offset value if set, nil otherwise
 func (h *SQLParseHook) GetOffset() *int {
 	return h.Offset
+}
+
+// SQLQueryBuilder builds SQL queries from filter components
+type SQLQueryBuilder struct {
+	Aggregates      map[string]string // Map of aggregate expressions
+	AggregatesSlice []string          // Slice of aggregate expressions to preserve order
+	Conditions      []string          // Main conditions array
+	OrderBy         []string          // Order by conditions
+	Limit           *int              // Optional limit for results
+	Offset          *int              // Optional offset for results
+	Params          []any             // Parameters for placeholders
+}
+
+// Build constructs a SQL SELECT query from the query builder components
+func (h *SQLQueryBuilder) Build(entity string, columns ...string) string {
+	var builder strings.Builder
+	builder.WriteString("SELECT ")
+
+	selectedColumns := []string{}
+
+	if len(h.Aggregates) > 0 {
+		for _, alias := range h.AggregatesSlice {
+			expr := h.Aggregates[alias]
+			selectedColumns = append(selectedColumns, expr+" AS "+alias)
+		}
+	}
+	if len(columns) > 0 {
+		selectedColumns = append(selectedColumns, columns...)
+	}
+
+	if len(selectedColumns) == 0 {
+		selectedColumns = append(selectedColumns, "*")
+	}
+
+	// Join selected columns
+	builder.WriteString(strings.Join(selectedColumns, ", "))
+
+	// From clause
+	builder.WriteString(" FROM " + entity)
+
+	// Where clause
+	if len(h.Conditions) > 0 {
+		builder.WriteString(" WHERE ")
+		builder.WriteString(strings.Join(h.Conditions, " AND "))
+	}
+
+	if len(h.Aggregates) > 0 && len(columns) > 0 {
+		builder.WriteString(" GROUP BY ")
+		builder.WriteString(strings.Join(columns, ", "))
+	}
+
+	if len(h.OrderBy) > 0 {
+		builder.WriteString(" ORDER BY ")
+		builder.WriteString(strings.Join(h.OrderBy, ", "))
+	}
+
+	if h.Limit != nil {
+		builder.WriteString(fmt.Sprintf(" LIMIT %d", *h.Limit))
+	}
+
+	if h.Offset != nil {
+		builder.WriteString(fmt.Sprintf(" OFFSET %d", *h.Offset))
+	}
+
+	return builder.String()
+}
+
+// SQLFilter is a filter hook that can generate SQL queries
+type SQLFilter interface {
+	inspector.FilterHook
+	GetQueryBuilder() SQLQueryBuilder
+}
+
+// NewSQLFilter creates a new SQL filter hook with the given configuration
+func NewSQLFilter(config *ParseHookConfig) SQLFilter {
+	if config == nil {
+		config = NewDefaultSQLParserHookConfig()
+	}
+
+	h := &SQLParseHook{
+		Conditions:   make([]string, 0),
+		Params:       make([]any, 0),
+		ParamIndex:   1,
+		LogicalStack: make([]*LogicalGroup, 0),
+		OrderBy:      make([]string, 0),
+		Aggregates:   make(map[string]string),
+		Config:       config,
+	}
+
+	return h
 }
