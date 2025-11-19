@@ -36,24 +36,27 @@ func RunTestCases(t *testing.T, tests []SQLParseTestCase, newHookFn func() *SQLP
 				assert.NoError(t, err)
 			}
 
-			whereClause, params := parseHook.GetWhereClause()
-			assert.Equal(t, tt.ExpectedWhere, whereClause)
-			assert.Equal(t, tt.Params, params)
+			qb := parseHook.GetQueryBuilder()
 
-			orderByClause := parseHook.GetOrderByClause()
+			// Validate WHERE clause
+			whereClause := strings.Join(qb.Conditions, " AND ")
+			assert.Equal(t, tt.ExpectedWhere, whereClause)
+			assert.Equal(t, tt.Params, qb.Params)
+
+			// Validate ORDER BY clause
+			orderByClause := strings.Join(qb.OrderBy, ", ")
 			assert.Equal(t, tt.ExpectedOrderBy, orderByClause)
 
+			// Validate aggregates
 			if tt.ExpectedAggregates != "" {
-				aggregates := parseHook.GetAggregates()
-
-				// Make a copy to avoid mutating the hook's internal state
-				sorted := make([]string, len(aggregates))
-				copy(sorted, aggregates)
-				// Sort aggregates for consistent comparison
-				sort.Strings(sorted)
-				// Join aggregates into a single string
-				aggregatesStr := strings.Join(sorted, ", ")
-				// Assert equality
+				// Build aggregates string from map
+				aggregateStrs := make([]string, 0, len(qb.Aggregates))
+				for alias, expr := range qb.Aggregates {
+					aggregateStrs = append(aggregateStrs, expr+" AS "+alias)
+				}
+				// Sort for consistent comparison
+				sort.Strings(aggregateStrs)
+				aggregatesStr := strings.Join(aggregateStrs, ", ")
 				assert.Equal(t, tt.ExpectedAggregates, aggregatesStr)
 			}
 

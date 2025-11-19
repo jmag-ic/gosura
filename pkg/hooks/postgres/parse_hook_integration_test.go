@@ -6,7 +6,6 @@ package postgres
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -15,12 +14,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-const TABLE_NAME = "gosura_pgintegration_test"
+const TABLE_NAME = "public.gosura_pgintegration_test"
 
 func createTestTable(ctx context.Context, db *pgx.Conn) error {
 	createTableSQL := fmt.Sprintf(`
-	DROP TABLE IF EXISTS public.%s;
-	CREATE TABLE public.%s (
+	DROP TABLE IF EXISTS %s;
+	CREATE TABLE %s (
 		id serial NOT NULL,
 		username text UNIQUE NOT NULL,
 		name text NULL,
@@ -40,7 +39,7 @@ func createTestTable(ctx context.Context, db *pgx.Conn) error {
 }
 
 func dropTestTable(ctx context.Context, db *pgx.Conn) error {
-	dropTableSQL := fmt.Sprintf("DROP TABLE IF EXISTS public.%s", TABLE_NAME)
+	dropTableSQL := fmt.Sprintf("DROP TABLE IF EXISTS %s", TABLE_NAME)
 	_, err := db.Exec(ctx, dropTableSQL)
 	if err != nil {
 		return fmt.Errorf("failed to drop table: %w", err)
@@ -50,7 +49,7 @@ func dropTestTable(ctx context.Context, db *pgx.Conn) error {
 
 func insertTestData(ctx context.Context, db *pgx.Conn) error {
 	insertSQL := fmt.Sprintf(`
-	INSERT INTO public.%s (username, name, age, average, is_active, tags, metadata, ip) VALUES
+	INSERT INTO %s (username, name, age, average, is_active, tags, metadata, ip) VALUES
 	('johndoe', 'John Doe', 30, 85.5, true, ARRAY['developer', 'golang'], '{"role": "admin", "department": "engineering", "skills": ["go", "postgresql"]}', '192.168.1.0/24'),
 	('janesmith', 'Jane Smith', 25, 92.3, true, ARRAY['designer', 'ui'], '{"role": "user", "department": "design", "preferences": {"theme": "dark"}}', '10.0.0.0/24'),
 	('bobjohnson', 'Bob Johnson', 35, 78.9, false, ARRAY['manager'], '{"role": "manager", "department": "sales", "reports": ["team1", "team2"]}', '172.16.0.0/24'),
@@ -383,16 +382,16 @@ func TestSQLParseHook_PostgresIntegration(t *testing.T) {
 
 	for _, c := range cases {
 
-		sqlParseHook := sql.NewSQLParseHook(postgresHookConfig)
+		sqlFilter := sql.NewSQLFilter(postgresHookConfig)
 
 		t.Run(c.name, func(t *testing.T) {
-			err := hasuraInspector.Inspect(ctx, c.filter, sqlParseHook)
+			err := hasuraInspector.Inspect(ctx, c.filter, sqlFilter)
 			require.NoError(t, err)
 
-			whereClause, params := sqlParseHook.GetWhereClause()
-			sqlQuery := fmt.Sprintf("SELECT username FROM public.%s WHERE %s", TABLE_NAME, whereClause)
+			qb := sqlFilter.GetQueryBuilder()
+			sqlQuery := qb.Build(TABLE_NAME, "username")
 
-			actualUsernames, err := executeQuery(ctx, conn, sqlQuery, params)
+			actualUsernames, err := executeQuery(ctx, conn, sqlQuery, qb.Params)
 			require.NoError(t, err)
 			require.True(t, validateResults(actualUsernames, c.expectedUsernames))
 		})
@@ -557,26 +556,15 @@ func TestSQLParseHook_AggregateIntegration(t *testing.T) {
 
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			sqlParseHook := sql.NewSQLParseHook(postgresHookConfig)
+			sqlFilter := sql.NewSQLFilter(postgresHookConfig)
 
-			err := hasuraInspector.Inspect(ctx, c.filter, sqlParseHook)
+			err := hasuraInspector.Inspect(ctx, c.filter, sqlFilter)
 			require.NoError(t, err)
 
-			aggregates := sqlParseHook.GetAggregates()
-			selectClause := strings.Join(aggregates, ", ")
-			if selectClause == "" {
-				selectClause = "*"
-			}
-			whereClause, params := sqlParseHook.GetWhereClause()
+			qb := sqlFilter.GetQueryBuilder()
+			sqlQuery := qb.Build(TABLE_NAME)
 
-			var sqlQuery string
-			if whereClause != "" {
-				sqlQuery = fmt.Sprintf("SELECT %s FROM public.%s WHERE %s", selectClause, TABLE_NAME, whereClause)
-			} else {
-				sqlQuery = fmt.Sprintf("SELECT %s FROM public.%s", selectClause, TABLE_NAME)
-			}
-
-			rows, err := conn.Query(ctx, sqlQuery, params...)
+			rows, err := conn.Query(ctx, sqlQuery, qb.Params...)
 			require.NoError(t, err)
 			defer rows.Close()
 

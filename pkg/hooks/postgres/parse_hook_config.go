@@ -101,7 +101,7 @@ func PostgresAggregateBuilder(
 	field string,
 	options gjson.Result,
 	getColumnAlias func(string, []string) string,
-) (string, error) {
+) (string, string, error) {
 	// Handle PostgreSQL-specific aggregates with special syntax
 	switch function {
 	case "string_agg":
@@ -121,9 +121,9 @@ func PostgresAggregateBuilder(
 
 // buildStringAgg handles STRING_AGG with delimiter and optional ORDER BY
 // Syntax: STRING_AGG(field, delimiter) or STRING_AGG(field, delimiter ORDER BY field)
-func buildStringAgg(sqlFn string, field string, options gjson.Result, getColumnAlias func(string, []string) string) (string, error) {
+func buildStringAgg(sqlFn string, field string, options gjson.Result, getColumnAlias func(string, []string) string) (string, string, error) {
 	if field == "" {
-		return "", fmt.Errorf("%s requires a field to aggregate", strings.ToLower(sqlFn))
+		return "", "", fmt.Errorf("%s requires a field to aggregate", strings.ToLower(sqlFn))
 	}
 
 	separator := options.Get("separator").String()
@@ -148,24 +148,24 @@ func buildStringAgg(sqlFn string, field string, options gjson.Result, getColumnA
 		expr += fmt.Sprintf(" ORDER BY %s %s", orderByAlias, strings.ToUpper(direction))
 	}
 
-	expr += fmt.Sprintf(") AS %s", resultAlias)
-	return expr, nil
+	expr += ")"
+	return expr, resultAlias, nil
 }
 
 // buildPercentile handles PERCENTILE_CONT and PERCENTILE_DISC with WITHIN GROUP
 // Syntax: PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY field)
-func buildPercentile(function, sqlFn, field string, options gjson.Result, getColumnAlias func(string, []string) string) (string, error) {
+func buildPercentile(function, sqlFn, field string, options gjson.Result, getColumnAlias func(string, []string) string) (string, string, error) {
 	if field == "" {
-		return "", fmt.Errorf("%s requires a field to aggregate", strings.ToLower(sqlFn))
+		return "", "", fmt.Errorf("%s requires a field to aggregate", strings.ToLower(sqlFn))
 	}
 
 	if !options.Get("percentile").Exists() {
-		return "", fmt.Errorf("%s requires a percentile value", function)
+		return "", "", fmt.Errorf("%s requires a percentile value", function)
 	}
 
 	percentile := options.Get("percentile").Float()
 	if percentile < 0 || percentile > 1 {
-		return "", fmt.Errorf("%s requires percentile between 0 and 1, got %f", function, percentile)
+		return "", "", fmt.Errorf("%s requires percentile between 0 and 1, got %f", function, percentile)
 	}
 
 	fieldAlias := getColumnAlias(field, []string{})
@@ -176,17 +176,17 @@ func buildPercentile(function, sqlFn, field string, options gjson.Result, getCol
 		direction = "ASC"
 	}
 
-	expr := fmt.Sprintf("%s(%g) WITHIN GROUP (ORDER BY %s %s) AS %s",
-		sqlFn, percentile, fieldAlias, strings.ToUpper(direction), resultAlias)
+	expr := fmt.Sprintf("%s(%g) WITHIN GROUP (ORDER BY %s %s)",
+		sqlFn, percentile, fieldAlias, strings.ToUpper(direction))
 
-	return expr, nil
+	return expr, resultAlias, nil
 }
 
 // buildArrayAgg handles ARRAY_AGG, JSON_AGG, and JSONB_AGG with optional DISTINCT and ORDER BY
 // Syntax: ARRAY_AGG([DISTINCT] field [ORDER BY field])
-func buildArrayAgg(sqlFn string, field string, options gjson.Result, getColumnAlias func(string, []string) string) (string, error) {
+func buildArrayAgg(sqlFn string, field string, options gjson.Result, getColumnAlias func(string, []string) string) (string, string, error) {
 	if field == "" {
-		return "", fmt.Errorf("%s requires a field to aggregate", strings.ToLower(sqlFn))
+		return "", "", fmt.Errorf("%s requires a field to aggregate", strings.ToLower(sqlFn))
 	}
 
 	hasDistinct := options.Get("distinct").Bool()
@@ -210,8 +210,9 @@ func buildArrayAgg(sqlFn string, field string, options gjson.Result, getColumnAl
 		expr += fmt.Sprintf(" ORDER BY %s %s", orderByAlias, strings.ToUpper(direction))
 	}
 
-	expr += fmt.Sprintf(") AS %s", resultAlias)
-	return expr, nil
+	expr += ")" // Close the function call
+
+	return expr, resultAlias, nil
 }
 
 func NewParseHookConfig() *sql.ParseHookConfig {
