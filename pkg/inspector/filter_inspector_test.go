@@ -57,6 +57,8 @@ type TestHook struct {
 	logicalOpEndCalls    []string
 	orderByCalls         []orderByCall
 	aggregateFieldCalls  []aggregateFieldCall
+	limit                *int
+	offset               *int
 }
 
 func (h *TestHook) OnComparison(ctx context.Context, field string, operator string, value gjson.Result, path []string) error {
@@ -88,6 +90,14 @@ func (h *TestHook) OnOrderBy(ctx context.Context, field string, direction string
 func (h *TestHook) OnAggregateField(ctx context.Context, function string, field string, options gjson.Result) error {
 	h.aggregateFieldCalls = append(h.aggregateFieldCalls, aggregateFieldCall{function, field})
 	return nil
+}
+
+func (h *TestHook) OnLimit(ctx context.Context, limit int) {
+	h.limit = &limit
+}
+
+func (h *TestHook) OnOffset(ctx context.Context, offset int) {
+	h.offset = &offset
 }
 
 func TestFilterInspector(t *testing.T) {
@@ -604,6 +614,213 @@ func TestAggregateInspector(t *testing.T) {
 				assert.Error(t, err)
 				assert.Equal(t, "invalid value for aggregate function avg", err.Error())
 				assert.Equal(t, 0, len(h.aggregateFieldCalls))
+			},
+		},
+	}
+
+	runTestCases(t, tests)
+}
+
+func TestPaginationInspector(t *testing.T) {
+	tests := []filterInspectorTestCase{
+		{
+			name:   "Limit only",
+			filter: `{"limit": 10}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.NotNil(t, h.limit)
+				assert.Equal(t, 10, *h.limit)
+				assert.Nil(t, h.offset)
+			},
+		},
+		{
+			name:   "Offset only",
+			filter: `{"offset": 20}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Nil(t, h.limit)
+				assert.NotNil(t, h.offset)
+				assert.Equal(t, 20, *h.offset)
+			},
+		},
+		{
+			name:   "Both limit and offset",
+			filter: `{"limit": 10, "offset": 20}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.NotNil(t, h.limit)
+				assert.Equal(t, 10, *h.limit)
+				assert.NotNil(t, h.offset)
+				assert.Equal(t, 20, *h.offset)
+			},
+		},
+		{
+			name:   "Limit zero (allowed)",
+			filter: `{"limit": 0}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.NotNil(t, h.limit)
+				assert.Equal(t, 0, *h.limit)
+			},
+		},
+		{
+			name:   "Offset zero (allowed)",
+			filter: `{"offset": 0}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.NotNil(t, h.offset)
+				assert.Equal(t, 0, *h.offset)
+			},
+		},
+		{
+			name:   "Large limit value",
+			filter: `{"limit": 2147483647}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.NotNil(t, h.limit)
+				assert.Equal(t, 2147483647, *h.limit)
+			},
+		},
+		{
+			name:   "Large offset value",
+			filter: `{"offset": 1000000}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.NotNil(t, h.offset)
+				assert.Equal(t, 1000000, *h.offset)
+			},
+		},
+		{
+			name:   "Pagination with WHERE clause",
+			filter: `{"where": {"status": {"_eq": "active"}}, "limit": 5}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.comparisonCalls))
+				assert.Equal(t, "status", h.comparisonCalls[0].field)
+				assert.NotNil(t, h.limit)
+				assert.Equal(t, 5, *h.limit)
+			},
+		},
+		{
+			name:   "Pagination with ORDER BY",
+			filter: `{"order_by": {"created_at": "desc"}, "limit": 10, "offset": 5}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.orderByCalls))
+				assert.NotNil(t, h.limit)
+				assert.Equal(t, 10, *h.limit)
+				assert.NotNil(t, h.offset)
+				assert.Equal(t, 5, *h.offset)
+			},
+		},
+		{
+			name:   "Full query with all features",
+			filter: `{"where": {"status": {"_eq": "active"}}, "order_by": {"id": "asc"}, "limit": 20, "offset": 40}`,
+			validate: func(h *TestHook, err error) {
+				assert.Nil(t, err)
+				assert.Equal(t, 1, len(h.comparisonCalls))
+				assert.Equal(t, 1, len(h.orderByCalls))
+				assert.NotNil(t, h.limit)
+				assert.Equal(t, 20, *h.limit)
+				assert.NotNil(t, h.offset)
+				assert.Equal(t, 40, *h.offset)
+			},
+		},
+	}
+
+	runTestCases(t, tests)
+}
+
+func TestPaginationInspectorErrors(t *testing.T) {
+	tests := []filterInspectorTestCase{
+		{
+			name:   "Negative limit",
+			filter: `{"limit": -5}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid limit value: must be non-negative")
+				assert.Nil(t, h.limit)
+			},
+		},
+		{
+			name:   "Negative offset",
+			filter: `{"offset": -10}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid offset value: must be non-negative")
+				assert.Nil(t, h.offset)
+			},
+		},
+		{
+			name:   "Float limit",
+			filter: `{"limit": 10.5}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid limit value: must be an integer")
+				assert.Nil(t, h.limit)
+			},
+		},
+		{
+			name:   "Float offset",
+			filter: `{"offset": 20.7}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid offset value: must be an integer")
+				assert.Nil(t, h.offset)
+			},
+		},
+		{
+			name:   "String limit",
+			filter: `{"limit": "10"}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid limit value: must be a number")
+				assert.Nil(t, h.limit)
+			},
+		},
+		{
+			name:   "String offset",
+			filter: `{"offset": "abc"}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid offset value: must be a number")
+				assert.Nil(t, h.offset)
+			},
+		},
+		{
+			name:   "Boolean limit",
+			filter: `{"limit": true}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid limit value: must be a number")
+				assert.Nil(t, h.limit)
+			},
+		},
+		{
+			name:   "Object limit",
+			filter: `{"limit": {"value": 10}}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid limit value: must be a number")
+				assert.Nil(t, h.limit)
+			},
+		},
+		{
+			name:   "Array offset",
+			filter: `{"offset": [20]}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid offset value: must be a number")
+				assert.Nil(t, h.offset)
+			},
+		},
+		{
+			name:   "Null limit",
+			filter: `{"limit": null}`,
+			validate: func(h *TestHook, err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid limit value: must be a number")
+				assert.Nil(t, h.limit)
 			},
 		},
 	}

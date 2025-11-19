@@ -128,6 +128,8 @@ type SQLParseHook struct {
 	OrderBy      []string        // Order by conditions
 	Aggregates   []string        // Aggregate expressions
 	Config       *ParseHookConfig
+	Limit        *int // Optional limit for results
+	Offset       *int // Optional offset for results
 }
 
 // Private types and constants for the hook implementation
@@ -399,4 +401,24 @@ func (h *SQLParseHook) getAggregateBuilder() AggregateExprBuilder {
 		return h.Config.AggregateBuilderFn
 	}
 	return DefaultAggregateBuilder
+}
+
+// OnLimit implements the FilterHook interface for pagination
+func (h *SQLParseHook) OnLimit(ctx context.Context, limit int) {
+	h.Limit = &limit
+}
+
+// OnOffset implements the FilterHook interface for pagination
+func (h *SQLParseHook) OnOffset(ctx context.Context, offset int) {
+	h.Offset = &offset
+}
+
+// GetLimit returns the limit value if set, nil otherwise
+func (h *SQLParseHook) GetLimit() *int {
+	return h.Limit
+}
+
+// GetOffset returns the offset value if set, nil otherwise
+func (h *SQLParseHook) GetOffset() *int {
+	return h.Offset
 }
