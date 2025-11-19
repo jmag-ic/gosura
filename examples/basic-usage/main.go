@@ -109,6 +109,53 @@ func main() {
 	selectClause = strings.Join(aggregates, ", ")
 
 	fmt.Printf("✅ Generated SQL: SELECT %s FROM orders\n", selectClause)
+	fmt.Println()
+
+	// Example 4: Pagination with LIMIT and OFFSET
+	fmt.Println("Example 4: Pagination (LIMIT & OFFSET)")
+	fmt.Println("---------------------------------------")
+	filterJSON = `{
+		"where": {
+			"status": {"_eq": "active"}
+		},
+		"order_by": {
+			"created_at": "desc"
+		},
+		"limit": 10,
+		"offset": 20
+	}`
+
+	pgParserHook = sql.NewSQLParseHook(config)
+	err = inspectorInstance.Inspect(ctx, filterJSON, pgParserHook)
+	if err != nil {
+		fmt.Printf("❌ Error: %v\n", err)
+		return
+	}
+
+	whereClause, params = pgParserHook.GetWhereClause()
+	orderByClause = pgParserHook.GetOrderByClause()
+	limit := pgParserHook.GetLimit()
+	offset := pgParserHook.GetOffset()
+
+	// Build the complete SQL query
+	query := "SELECT * FROM products"
+	if whereClause != "" {
+		query += fmt.Sprintf(" WHERE %s", whereClause)
+	}
+	if orderByClause != "" {
+		query += fmt.Sprintf(" ORDER BY %s", orderByClause)
+	}
+	if limit != nil {
+		query += fmt.Sprintf(" LIMIT %d", *limit)
+	}
+	if offset != nil {
+		query += fmt.Sprintf(" OFFSET %d", *offset)
+	}
+
+	fmt.Printf("✅ Generated SQL:\n")
+	fmt.Printf("   %s\n", query)
+	fmt.Printf("📝 Parameters: %v\n", params)
+	fmt.Printf("📄 Returns: Rows 21-30 of active products, newest first\n")
 
 	fmt.Println("\n🎉 All examples completed successfully!")
 }

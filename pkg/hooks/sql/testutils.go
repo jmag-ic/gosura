@@ -18,6 +18,7 @@ type SQLParseTestCase struct {
 	ExpectedAggregates string
 	Params             []any
 	ValidateErr        func(error)
+	ValidateHook       func(*SQLParseHook)
 }
 
 func RunTestCases(t *testing.T, tests []SQLParseTestCase, newHookFn func() *SQLParseHook) {
@@ -54,6 +55,11 @@ func RunTestCases(t *testing.T, tests []SQLParseTestCase, newHookFn func() *SQLP
 				aggregatesStr := strings.Join(sorted, ", ")
 				// Assert equality
 				assert.Equal(t, tt.ExpectedAggregates, aggregatesStr)
+			}
+
+			// Custom hook validation
+			if tt.ValidateHook != nil {
+				tt.ValidateHook(parseHook)
 			}
 		})
 	}

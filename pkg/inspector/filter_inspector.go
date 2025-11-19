@@ -20,6 +20,8 @@ const (
 	KeyWhere     = "where"
 	KeyOrderBy   = "order_by"
 	KeyAggregate = "aggregate"
+	KeyLimit     = "limit"
+	KeyOffset    = "offset"
 )
 
 var logicalOperators = map[string]struct{}{OpAnd: {}, OpOr: {}, OpNot: {}}
@@ -40,6 +42,10 @@ type FilterHook interface {
 	OnOrderBy(ctx context.Context, field string, direction string, path []string)
 	// OnAggregateField is called for each field in an aggregate function
 	OnAggregateField(ctx context.Context, function string, field string, options gjson.Result) error
+	// OnLimit is called when a limit is set
+	OnLimit(ctx context.Context, limit int)
+	// OnOffset is called when an offset is set
+	OnOffset(ctx context.Context, offset int)
 }
 
 // HasuraInspector
@@ -63,6 +69,18 @@ func (hi *HasuraInspector) Inspect(ctx context.Context, filterJSON string, hooks
 
 	if orderBy := filter.Get(KeyOrderBy); orderBy.Exists() {
 		if err := hi.processOrderByNode(ctx, hooks, "", orderBy, []string{}); err != nil {
+			return err
+		}
+	}
+
+	if limit := filter.Get(KeyLimit); limit.Exists() {
+		if err := hi.processLimitNode(ctx, hooks, limit); err != nil {
+			return err
+		}
+	}
+
+	if offset := filter.Get(KeyOffset); offset.Exists() {
+		if err := hi.processOffsetNode(ctx, hooks, offset); err != nil {
 			return err
 		}
 	}
@@ -366,6 +384,48 @@ func (hi *HasuraInspector) notifyAggregateField(ctx context.Context, hooks []Fil
 		if err := hook.OnAggregateField(ctx, function, field, options); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// processLimitNode processes the limit JSON node
+func (hi *HasuraInspector) processLimitNode(ctx context.Context, hooks []FilterHook, node gjson.Result) error {
+	if node.Type != gjson.Number {
+		return fmt.Errorf("invalid limit value: must be a number")
+	}
+
+	limit := int(node.Int())
+	if float64(limit) != node.Float() {
+		return fmt.Errorf("invalid limit value: must be an integer")
+	}
+
+	if limit < 0 {
+		return fmt.Errorf("invalid limit value: must be non-negative, got %d", limit)
+	}
+
+	for _, hook := range hooks {
+		hook.OnLimit(ctx, limit)
+	}
+	return nil
+}
+
+// processOffsetNode processes the offset JSON node
+func (hi *HasuraInspector) processOffsetNode(ctx context.Context, hooks []FilterHook, node gjson.Result) error {
+	if node.Type != gjson.Number {
+		return fmt.Errorf("invalid offset value: must be a number")
+	}
+
+	offset := int(node.Int())
+	if float64(offset) != node.Float() {
+		return fmt.Errorf("invalid offset value: must be an integer")
+	}
+
+	if offset < 0 {
+		return fmt.Errorf("invalid offset value: must be non-negative, got %d", offset)
+	}
+
+	for _, hook := range hooks {
+		hook.OnOffset(ctx, offset)
 	}
 	return nil
 }

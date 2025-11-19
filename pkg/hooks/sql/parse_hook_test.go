@@ -475,3 +475,176 @@ func TestSQLParseHook_Aggregates(t *testing.T) {
 		return sql.NewSQLParseHook(nil)
 	})
 }
+
+func TestSQLParseHook_Pagination(t *testing.T) {
+	tests := []sql.SQLParseTestCase{
+		{
+			Name:          "Limit only",
+			Filter:        `{"limit": 10}`,
+			ExpectedWhere: "",
+			Params:        []any{},
+			ValidateHook: func(hook *sql.SQLParseHook) {
+				assert.NotNil(t, hook.GetLimit())
+				assert.Equal(t, 10, *hook.GetLimit())
+				assert.Nil(t, hook.GetOffset())
+			},
+		},
+		{
+			Name:          "Offset only",
+			Filter:        `{"offset": 20}`,
+			ExpectedWhere: "",
+			Params:        []any{},
+			ValidateHook: func(hook *sql.SQLParseHook) {
+				assert.Nil(t, hook.GetLimit())
+				assert.NotNil(t, hook.GetOffset())
+				assert.Equal(t, 20, *hook.GetOffset())
+			},
+		},
+		{
+			Name:          "Both limit and offset",
+			Filter:        `{"limit": 10, "offset": 20}`,
+			ExpectedWhere: "",
+			Params:        []any{},
+			ValidateHook: func(hook *sql.SQLParseHook) {
+				assert.NotNil(t, hook.GetLimit())
+				assert.Equal(t, 10, *hook.GetLimit())
+				assert.NotNil(t, hook.GetOffset())
+				assert.Equal(t, 20, *hook.GetOffset())
+			},
+		},
+		{
+			Name:          "Limit zero",
+			Filter:        `{"limit": 0}`,
+			ExpectedWhere: "",
+			Params:        []any{},
+			ValidateHook: func(hook *sql.SQLParseHook) {
+				assert.NotNil(t, hook.GetLimit())
+				assert.Equal(t, 0, *hook.GetLimit())
+			},
+		},
+		{
+			Name:          "Offset zero",
+			Filter:        `{"offset": 0}`,
+			ExpectedWhere: "",
+			Params:        []any{},
+			ValidateHook: func(hook *sql.SQLParseHook) {
+				assert.NotNil(t, hook.GetOffset())
+				assert.Equal(t, 0, *hook.GetOffset())
+			},
+		},
+		{
+			Name:          "Pagination with WHERE",
+			Filter:        `{"where": {"status": {"_eq": "active"}}, "limit": 5, "offset": 10}`,
+			ExpectedWhere: `"status" = $1`,
+			Params:        []any{"active"},
+			ValidateHook: func(hook *sql.SQLParseHook) {
+				assert.NotNil(t, hook.GetLimit())
+				assert.Equal(t, 5, *hook.GetLimit())
+				assert.NotNil(t, hook.GetOffset())
+				assert.Equal(t, 10, *hook.GetOffset())
+			},
+		},
+		{
+			Name:            "Pagination with ORDER BY",
+			Filter:          `{"order_by": {"created_at": "desc"}, "limit": 25, "offset": 50}`,
+			ExpectedWhere:   "",
+			ExpectedOrderBy: `"created_at" DESC`,
+			Params:          []any{},
+			ValidateHook: func(hook *sql.SQLParseHook) {
+				assert.NotNil(t, hook.GetLimit())
+				assert.Equal(t, 25, *hook.GetLimit())
+				assert.NotNil(t, hook.GetOffset())
+				assert.Equal(t, 50, *hook.GetOffset())
+			},
+		},
+		{
+			Name:               "Pagination with aggregates",
+			Filter:             `{"aggregate": {"count": "*", "avg": "rating"}, "limit": 100}`,
+			ExpectedWhere:      "",
+			ExpectedAggregates: `AVG("rating") AS avg_rating, COUNT(*) AS count`,
+			Params:             []any{},
+			ValidateHook: func(hook *sql.SQLParseHook) {
+				assert.NotNil(t, hook.GetLimit())
+				assert.Equal(t, 100, *hook.GetLimit())
+				assert.Nil(t, hook.GetOffset())
+			},
+		},
+		{
+			Name:            "Full query with pagination",
+			Filter:          `{"where": {"status": {"_eq": "active"}}, "order_by": {"created_at": "desc"}, "limit": 10, "offset": 20}`,
+			ExpectedWhere:   `"status" = $1`,
+			ExpectedOrderBy: `"created_at" DESC`,
+			Params:          []any{"active"},
+			ValidateHook: func(hook *sql.SQLParseHook) {
+				assert.NotNil(t, hook.GetLimit())
+				assert.Equal(t, 10, *hook.GetLimit())
+				assert.NotNil(t, hook.GetOffset())
+				assert.Equal(t, 20, *hook.GetOffset())
+			},
+		},
+		{
+			Name:          "Large limit value",
+			Filter:        `{"limit": 2147483647}`,
+			ExpectedWhere: "",
+			Params:        []any{},
+			ValidateHook: func(hook *sql.SQLParseHook) {
+				assert.NotNil(t, hook.GetLimit())
+				assert.Equal(t, 2147483647, *hook.GetLimit())
+			},
+		},
+		{
+			Name:          "Large offset value",
+			Filter:        `{"offset": 1000000}`,
+			ExpectedWhere: "",
+			Params:        []any{},
+			ValidateHook: func(hook *sql.SQLParseHook) {
+				assert.NotNil(t, hook.GetOffset())
+				assert.Equal(t, 1000000, *hook.GetOffset())
+			},
+		},
+		{
+			Name:          "Negative limit error",
+			Filter:        `{"limit": -5}`,
+			ExpectedWhere: "",
+			Params:        []any{},
+			ValidateErr: func(err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid limit value: must be non-negative")
+			},
+		},
+		{
+			Name:          "Negative offset error",
+			Filter:        `{"offset": -10}`,
+			ExpectedWhere: "",
+			Params:        []any{},
+			ValidateErr: func(err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid offset value: must be non-negative")
+			},
+		},
+		{
+			Name:          "Float limit error",
+			Filter:        `{"limit": 10.5}`,
+			ExpectedWhere: "",
+			Params:        []any{},
+			ValidateErr: func(err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid limit value: must be an integer")
+			},
+		},
+		{
+			Name:          "Float offset error",
+			Filter:        `{"offset": 20.7}`,
+			ExpectedWhere: "",
+			Params:        []any{},
+			ValidateErr: func(err error) {
+				assert.Error(t, err)
+				assert.Contains(t, err.Error(), "invalid offset value: must be an integer")
+			},
+		},
+	}
+
+	sql.RunTestCases(t, tests, func() *sql.SQLParseHook {
+		return sql.NewSQLParseHook(nil)
+	})
+}
